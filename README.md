@@ -1,10 +1,15 @@
+
 # RaviOS
 
 **A minimal, Docker-based Developer Appliance for generic x86_64 hardware.**
 
-RaviOS is an early-stage project exploring a small, purpose-built Linux system that boots directly into a Docker-based development environment. Its goal is to combine a lightweight host operating system with a local web dashboard and an integrated application manager.
+RaviOS is an experimental, purpose-built Linux operating system designed to provide a lightweight host environment for Docker-based development workloads.
 
-> **Project status:** Planning and foundation stage. The architecture and implementation are evolving. RaviOS is not yet a usable operating system.
+The long-term goal is to combine a minimal Linux system with Docker Engine, SSH access, a local web dashboard, and an integrated application manager.
+
+RaviOS is built using Buildroot and maintained through a project-specific Buildroot External Tree.
+
+> **Project status:** Early development. The initial x86_64 bootable system has been built and successfully tested in VirtualBox. SSH access is operational. Docker Engine and the higher-level management components are still under development.
 
 ## Project goals
 
@@ -24,15 +29,56 @@ RaviOS is an early-stage project exploring a small, purpose-built Linux system t
 3. **Modular applications.** Optional applications are managed independently of the operating-system core.
 4. **Persistent user data.** Container data and application configuration must be kept separate from replaceable system files.
 5. **Local-first management.** The web dashboard is intended to listen on loopback (`127.0.0.1`) by default.
-6. **Incremental engineering.** First prove a minimal bootable image; then add Docker, services, and the management interface.
+6. **Incremental engineering.** Each major component is implemented and tested before moving to the next stage.
+
+## Current implementation
+
+The following components have been implemented and tested:
+
+| Component | Status |
+|---|---|
+| Buildroot development environment | Implemented |
+| Buildroot External Tree | Implemented |
+| x86_64 Linux kernel build | Implemented |
+| BIOS bootloader (GRUB) | Implemented |
+| Bootable disk image | Tested in VirtualBox |
+| Root account and password authentication | Implemented |
+| SSH server (Dropbear) | Tested |
+| SSH access from Windows host | Tested |
+| Docker Engine | Not implemented |
+| Persistent application storage | Planned |
+| Local web dashboard | Planned |
+| Application Manager | Planned |
+
+### Current system configuration
+
+- Build system: Buildroot `2026.08.1`
+- Linux kernel: `7.3.3`
+- Architecture: `x86_64`
+- Boot mode: BIOS
+- Bootloader: GRUB
+- Init system: BusyBox init
+- SSH server: Dropbear
+- Root filesystem: ext2
+- Development environment: Docker Desktop
+- Current test environment: VirtualBox
+
+The current system is intentionally minimal. Its initial implementation focuses on a reliable boot process, basic networking, root access, and remote administration.
 
 ## What belongs on the host?
 
-The host is expected to contain the Linux kernel, a minimal userland and init system, networking and storage support, Docker Engine and its required components, and the system services needed to operate RaviOS.
+The host is expected to contain:
+
+- Linux kernel and a minimal userland.
+- Init system and essential system services.
+- Networking and storage support.
+- Docker Engine and its required components.
+- SSH server.
+- Services required to operate RaviOS.
 
 Development runtimes such as Python, Node.js, and Go are **not planned as host installations**. They, along with databases and development tools, are intended to run as Docker containers.
 
-Some optional management applications (for example, a container UI or monitoring service) may also run in containers.
+Some optional management applications, such as container interfaces and monitoring services, may also run in containers.
 
 ## Planned architecture
 
@@ -42,38 +88,74 @@ At a high level:
 
 ```text
 Hardware (generic x86_64)
-        |
-Bootloader
-        |
+         |
+Bootloader (GRUB)
+         |
 Linux kernel
-        |
+         |
 Minimal host userspace and init
-        |
+         |
 Network / storage / system services
-        |
+         |
 Docker Engine
-        |
+         |
 Application Manager + optional application containers
-        |
+         |
 Local Web Dashboard (127.0.0.1 by default)
 ```
 
-## Build approach
+## Build environment
 
-RaviOS intends to use [Buildroot](https://buildroot.org/) with a project-owned **Buildroot External Tree**. This keeps RaviOS board configuration, package definitions, and filesystem customizations outside the upstream Buildroot source tree.
+RaviOS uses [Buildroot](https://buildroot.org/) with a project-owned **Buildroot External Tree**.
 
-The Buildroot source checkout and generated build artifacts should normally remain outside the Git repository (or in ignored local directories). The repository should contain RaviOS-specific configuration and source code, not large generated toolchains or images.
+The development environment is provided through Docker, keeping the build toolchain and dependencies separate from the host operating system.
+
+The project separates the following build resources:
+
+- Buildroot source tree.
+- Build output and generated target filesystem.
+- Downloaded source archives.
+- Compiler cache.
+- RaviOS-specific configuration and customizations.
+- Generated disk images and other artifacts.
+
+Buildroot source files and generated build resources are kept outside the Git repository where appropriate. The repository contains project-specific configuration, scripts, and source code rather than large generated toolchains or images.
 
 ## Development roadmap
 
 The roadmap is intentionally staged:
 
-1. **Bootable foundation:** Build a minimal x86_64 image and boot it in QEMU.
-2. **Docker core:** Enable the kernel features and userspace components required by Docker; run a test container.
-3. **System services:** Add boot orchestration, networking, SSH, logging, and persistent storage handling.
-4. **Management interface:** Add the local dashboard and Docker integration.
-5. **Application Manager:** Add a catalog and lifecycle operations for Docker-based applications.
-6. **Images and hardware testing:** Produce installable images and test on representative x86_64 hardware.
+1. **Bootable foundation — Completed.**
+   - Build a minimal x86_64 Linux image.
+   - Configure GRUB and BIOS boot.
+   - Boot and test the image in VirtualBox.
+   - Establish root login and SSH access.
+
+2. **Docker core — In progress.**
+   - Enable the required kernel features.
+   - Integrate Docker Engine and its dependencies.
+   - Configure container storage and networking.
+   - Run and validate test containers.
+
+3. **System services.**
+   - Improve boot orchestration.
+   - Configure persistent storage.
+   - Integrate essential system services and logging.
+
+4. **Management interface.**
+   - Develop a local web dashboard.
+   - Integrate dashboard operations with Docker.
+   - Keep management interfaces local by default.
+
+5. **Application Manager.**
+   - Define an application catalog and manifest format.
+   - Implement application installation, configuration, and lifecycle management.
+   - Support independently managed Docker-based applications.
+
+6. **Images and hardware testing.**
+   - Improve disk image generation.
+   - Explore ISO support where appropriate.
+   - Test on representative x86_64 hardware.
 
 ## Repository layout
 
@@ -99,7 +181,7 @@ RaviOS/
 └── tests/
 ```
 
-This is a proposed starting layout, not a claim that all directories are implemented. We will add directories when their responsibilities and contents become concrete.
+This layout describes the intended project organization. Some directories represent planned components and will be introduced as their responsibilities become concrete.
 
 ## Current non-goals
 
@@ -111,10 +193,16 @@ This is a proposed starting layout, not a claim that all directories are impleme
 
 ## Contributing and project decisions
 
-The project is at an early design stage. Significant architectural choices should be recorded in `docs/architecture/` (or a future architecture decision record directory) so that implementation remains consistent.
+RaviOS is being developed incrementally. Contributions and independent development are encouraged.
 
-Before selecting a license, review the licensing obligations of the project and its dependencies. No license is declared by this initial documentation.
+Significant architectural choices should be documented in `docs/architecture/` (or a future architecture decision record directory) so that implementation remains consistent.
+
+The current development image uses a default root password (`ravios`). This is intended for initial development and testing. Change it before using the system in an environment where the default credentials could be exposed.
+
+Before selecting a license, review the licensing obligations of the project and its dependencies. No license is declared by this documentation.
 
 ## License
 
-**Not selected yet.** Until a license is added, do not assume that the repository is available for reuse, redistribution, or modification under an open-source license.
+**Not selected yet.**
+
+Until a license is added, do not assume that the repository is available for reuse, redistribution, or modification under an open-source license.
