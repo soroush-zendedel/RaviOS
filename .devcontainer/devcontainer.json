@@ -1,0 +1,8 @@
+{
+    "name": "RaviOS Development",
+    "dockerComposeFile": "../docker-compose.yml",
+    "service": "ravios-dev",
+    "workspaceFolder": "/workspace",
+    "shutdownAction": "stopCompose",
+    "overrideCommand": true
+}

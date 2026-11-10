@@ -38,3 +38,17 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+
+# Buildroot
+/buildroot/
+
+/build/
+/output/
+/dl/
+
+# Generated system images
+*.iso
+*.img
+*.qcow2
+*.raw

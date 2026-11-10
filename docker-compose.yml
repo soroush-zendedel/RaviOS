@@ -1,0 +1,17 @@
+services:
+  ravios-dev:
+    build:
+      context: .
+      dockerfile: docker/development/Dockerfile
+
+    container_name: ravios-dev
+
+    working_dir: /workspace
+
+    volumes:
+      - .:/workspace
+
+    stdin_open: true
+    tty: true
+
+    command: /bin/bash
