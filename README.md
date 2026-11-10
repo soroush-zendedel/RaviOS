@@ -201,6 +201,8 @@ The current development image uses a default root password (`ravios`). This is i
 
 Before selecting a license, review the licensing obligations of the project and its dependencies. No license is declared by this documentation.
 
+See [Git Workflow](docs/development/git-workflow.md) for branching conventions, milestone tags, and development practices.
+
 ## License
 
 **Not selected yet.**
