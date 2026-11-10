@@ -1,0 +1,40 @@
+# Buildroot source checkout (keep upstream source outside this repository)
+/buildroot/
+
+# Build output and generated images
+/output/
+/build/
+/images/
+/dl/
+*.img
+*.iso
+*.qcow2
+*.raw
+*.vdi
+*.vmdk
+
+# Buildroot and local configuration
+.config
+.config.old
+.br2-external.mk
+.defconfig
+*.config.old
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Python tooling (for future project utilities)
+/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editor / operating-system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
