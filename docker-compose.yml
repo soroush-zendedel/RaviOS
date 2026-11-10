@@ -9,9 +9,31 @@ services:
     working_dir: /workspace
 
     volumes:
-      - .:/workspace
+      # Buildroot source
+      - buildroot-src:/workspace/buildroot
+
+      # Build output
+      - buildroot-output:/workspace/output
+
+      # Download cache
+      - buildroot-dl:/workspace/dl
+
+      # Compiler cache
+      - buildroot-ccache:/root/.buildroot-ccache
+
+      # RaviOS external configuration
+      - ./buildroot-external:/workspace/buildroot-external:ro
+
+      # Final artifacts exported to Windows
+      - ./artifacts:/workspace/artifacts
 
     stdin_open: true
     tty: true
 
     command: /bin/bash
+
+volumes:
+  buildroot-src:
+  buildroot-output:
+  buildroot-dl:
+  buildroot-ccache:

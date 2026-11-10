@@ -1,0 +1,12 @@
+# Shell scripts
+*.sh text eol=lf
+
+# Buildroot configuration
+Config.in text eol=lf
+*.config text eol=lf
+*_defconfig text eol=lf
+*.desc text eol=lf
+
+# Docker configuration
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf

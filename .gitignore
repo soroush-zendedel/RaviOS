@@ -52,3 +52,5 @@ Thumbs.db
 *.img
 *.qcow2
 *.raw
+
+/download_tmp/
