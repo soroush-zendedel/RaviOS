@@ -203,6 +203,11 @@ Before selecting a license, review the licensing obligations of the project and 
 
 See [Git Workflow](docs/development/git-workflow.md) for branching conventions, milestone tags, and development practices.
 
+## Documentation
+
+- [Git Workflow](docs/development/git-workflow.md) — Branching, commits, tags, and development workflow.
+- [Build Environment](docs/development/build-environment.md) — Build setup, download cache management, and manual package downloads.
+
 ## License
 
 **Not selected yet.**
