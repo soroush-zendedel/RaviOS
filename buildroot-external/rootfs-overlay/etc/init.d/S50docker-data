@@ -1,0 +1,70 @@
+#!/bin/sh
+
+DATA_UUID="66666666-6666-6666-6666-666666666666"
+MOUNTPOINT="/var/lib/docker"
+
+start() {
+    printf "Checking Docker Data: "
+
+    DEVICES="$(blkid -c /dev/null -t "UUID=$DATA_UUID" -o device 2>/dev/null)"
+
+    if [ -z "$DEVICES" ]; then
+        echo "FAIL (partition not found)"
+        return 1
+    fi
+
+    set -- $DEVICES
+
+    if [ "$#" -ne 1 ]; then
+        echo "FAIL (duplicate UUID detected)"
+        return 1
+    fi
+
+    DEVICE="$1"
+
+    ACTUAL_UUID="$(blkid -p -s UUID -o value "$DEVICE" 2>/dev/null)"
+    ACTUAL_TYPE="$(blkid -p -s TYPE -o value "$DEVICE" 2>/dev/null)"
+    ACTUAL_LABEL="$(blkid -p -s LABEL -o value "$DEVICE" 2>/dev/null)"
+
+    if [ "$ACTUAL_UUID" != "$DATA_UUID" ] || [ "$ACTUAL_TYPE" != "ext4" ] || [ "$ACTUAL_LABEL" != "revayat" ]; then
+        echo "FAIL (invalid filesystem)"
+        return 1
+    fi
+
+    if grep -q " $MOUNTPOINT " /proc/mounts; then
+        MOUNT_SOURCE="$(awk -v mp="$MOUNTPOINT" '$2 == mp {print $1; exit}' /proc/mounts)"
+        MOUNT_UUID="$(blkid -p -s UUID -o value "$MOUNT_SOURCE" 2>/dev/null)"
+        MOUNT_TYPE="$(awk -v mp="$MOUNTPOINT" '$2 == mp {print $3; exit}' /proc/mounts)"
+        MOUNT_LABEL="$(blkid -p -s LABEL -o value "$MOUNT_SOURCE" 2>/dev/null)"
+
+        if [ "$MOUNT_UUID" = "$DATA_UUID" ] && [ "$MOUNT_TYPE" = "ext4" ] && [ "$MOUNT_LABEL" = "revayat" ]; then
+            echo "OK (already mounted)"
+            return 0
+        fi
+
+        echo "FAIL (mountpoint occupied by another filesystem)"
+        return 1
+    fi
+
+    mkdir -p "$MOUNTPOINT" || {
+        echo "FAIL (cannot create mountpoint)"
+        return 1
+    }
+
+    if ! mount -t ext4 "$DEVICE" "$MOUNTPOINT"; then
+        echo "FAIL (mount failed)"
+        return 1
+    fi
+
+    echo "OK"
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    *)
+        echo "Usage: $0 start"
+        exit 1
+        ;;
+esac

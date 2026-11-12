@@ -3,6 +3,8 @@
 
 **A minimal, Docker-based Developer Appliance for generic x86_64 hardware.**
 
+**ما Docker را با Buildroot می‌سازیم و سپس Docker را داخل سیستم‌عاملی قرار می‌دهیم که قرار است میزبان اجرای کانتینرهای Docker باشد!
+
 RaviOS is an experimental, purpose-built Linux operating system designed to provide a lightweight host environment for Docker-based development workloads.
 
 The long-term goal is to combine a minimal Linux system with Docker Engine, SSH access, a local web dashboard, and an integrated application manager.
@@ -12,6 +14,8 @@ RaviOS is built using Buildroot and maintained through a project-specific Buildr
 > **Project status:** Early development. The initial x86_64 bootable system has been built and successfully tested in VirtualBox. SSH access is operational. Docker Engine and the higher-level management components are still under development.
 
 ## Project goals
+
+**RaviOS — Nothing unnecessary. Everything intentional.**
 
 - Target generic `x86_64` systems (Intel and AMD).
 - Build a small, reproducible Linux image using Buildroot.
@@ -23,6 +27,8 @@ RaviOS is built using Buildroot and maintained through a project-specific Buildr
 - Produce bootable disk images, with ISO support where appropriate.
 
 ## Design principles
+
+**RaviOS isn't built to include everything. It's built to include exactly what it needs.
 
 1. **Small host, capable containers.** The host contains only what is needed to boot, operate, network, store data, and manage containers.
 2. **Reproducible builds.** Build configuration and project-specific customizations are version-controlled.

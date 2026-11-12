@@ -1,0 +1,156 @@
+#!/bin/sh
+
+DAEMON="dockerd"
+PIDFILE="/var/run/$DAEMON.pid"
+
+DATA_UUID="66666666-6666-6666-6666-666666666666"
+DATA_LABEL="revayat"
+MOUNTPOINT="/var/lib/docker"
+
+DOCKERD_ARGS=""
+
+[ -r "/etc/default/$DAEMON" ] && . "/etc/default/$DAEMON"
+
+check_docker_data() {
+    printf "Checking Docker Data: "
+
+    DEVICES="$(blkid -c /dev/null -t "UUID=$DATA_UUID" -o device 2>/dev/null)"
+
+    if [ -z "$DEVICES" ]; then
+        echo "FAIL (partition not found)"
+        return 1
+    fi
+
+    set -- $DEVICES
+
+    if [ "$#" -ne 1 ]; then
+        echo "FAIL (duplicate UUID detected)"
+        return 1
+    fi
+
+    DEVICE="$1"
+
+    ACTUAL_UUID="$(blkid -p -s UUID -o value "$DEVICE" 2>/dev/null)"
+    ACTUAL_TYPE="$(blkid -p -s TYPE -o value "$DEVICE" 2>/dev/null)"
+    ACTUAL_LABEL="$(blkid -p -s LABEL -o value "$DEVICE" 2>/dev/null)"
+
+    if [ "$ACTUAL_UUID" != "$DATA_UUID" ] ||
+       [ "$ACTUAL_TYPE" != "ext4" ] ||
+       [ "$ACTUAL_LABEL" != "$DATA_LABEL" ]; then
+        echo "FAIL (invalid filesystem)"
+        return 1
+    fi
+
+    MOUNT_INFO="$(awk -v mp="$MOUNTPOINT" '$2 == mp {print $1, $3; exit}' /proc/mounts)"
+
+    if [ -z "$MOUNT_INFO" ]; then
+        echo "FAIL (Docker Data is not mounted)"
+        return 1
+    fi
+
+    set -- $MOUNT_INFO
+
+    if [ "$#" -ne 2 ]; then
+        echo "FAIL (invalid mount information)"
+        return 1
+    fi
+
+    MOUNT_SOURCE="$1"
+    MOUNT_TYPE="$2"
+
+    MOUNT_UUID="$(blkid -p -s UUID -o value "$MOUNT_SOURCE" 2>/dev/null)"
+    MOUNT_LABEL="$(blkid -p -s LABEL -o value "$MOUNT_SOURCE" 2>/dev/null)"
+
+    if [ "$MOUNT_UUID" != "$DATA_UUID" ] ||
+       [ "$MOUNT_TYPE" != "ext4" ] ||
+       [ "$MOUNT_LABEL" != "$DATA_LABEL" ]; then
+        echo "FAIL (wrong filesystem mounted)"
+        return 1
+    fi
+
+    echo "OK"
+    return 0
+}
+
+start() {
+    if ! check_docker_data; then
+        echo "Refusing to start Docker without valid Docker Data."
+        return 1
+    fi
+
+    printf 'Starting %s: ' "$DAEMON"
+
+    start-stop-daemon --start --background --pidfile "$PIDFILE" \
+        --exec /usr/libexec/dockerd-syslog-wrapper.sh \
+        -- "/usr/bin/$DAEMON" --pidfile "$PIDFILE" $DOCKERD_ARGS
+
+    status=$?
+
+    if [ "$status" -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
+
+    return "$status"
+}
+
+stop() {
+    printf 'Stopping %s: ' "$DAEMON"
+
+    start-stop-daemon --stop --pidfile "$PIDFILE" --exec "/usr/bin/$DAEMON"
+
+    status=$?
+
+    if [ "$status" -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+        return "$status"
+    fi
+
+    while start-stop-daemon --stop --test --quiet --pidfile "$PIDFILE" \
+        --exec "/usr/bin/$DAEMON"; do
+        sleep 0.1
+    done
+
+    rm -f "$PIDFILE"
+    return "$status"
+}
+
+restart() {
+    stop
+    start
+}
+
+reload() {
+    if ! check_docker_data; then
+        echo "Refusing to reload Docker without valid Docker Data."
+        return 1
+    fi
+
+    printf "Reloading %s config: " "$DAEMON"
+
+    start-stop-daemon --stop --signal HUP -q --pidfile "$PIDFILE" \
+        --exec "/usr/bin/$DAEMON"
+
+    status=$?
+
+    if [ "$status" -eq 0 ]; then
+        echo "OK"
+    else
+        echo "FAIL"
+    fi
+
+    return "$status"
+}
+
+case "$1" in
+    start|stop|restart|reload)
+        "$1"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|reload}"
+        exit 1
+        ;;
+esac
