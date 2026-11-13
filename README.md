@@ -10,7 +10,7 @@ The long-term goal is to combine a minimal Linux system with Docker Engine, SSH 
 
 RaviOS is built using Buildroot and maintained through a project-specific Buildroot External Tree.
 
-> **Project status:** Early development. The initial x86_64 system boots successfully in VirtualBox using UEFI, and SSH access is operational. Docker Engine is integrated and has successfully pulled and run a test container. A dedicated ext4 Docker Data partition is generated, mounted, and persists across reboot. Missing-storage behavior, external storage reuse, and recovery workflows still require validation.
+> **Project status:** Early development. The initial x86_64 system boots successfully in VirtualBox using UEFI, and SSH access is operational. Docker Engine is integrated and has successfully pulled and run test containers. Docker Data supports both internal and external storage, automatic discovery, persistent selection, and switching between storage devices. Both image build modes—with and without an internal Docker Data partition—have been tested. BIOS compatibility and broader physical hardware validation remain ongoing.
 
 ## Project goals
 
@@ -64,8 +64,11 @@ The following table distinguishes implemented components from features that stil
 | Dedicated Docker Data ext4 partition | Implemented |
 | Docker Data mount at `/var/lib/docker` | Tested |
 | Docker image persistence across reboot | Tested |
-| Missing Docker Data behavior | Validation pending |
-| External Docker Data discovery and reuse | Validation pending |
+| Image build without an internal Docker Data partition | Tested |
+| Missing Docker Data startup protection | Tested |
+| External Docker Data discovery and reuse | Tested |
+| Persistent explicit storage selection | Tested |
+| Switching between internal and external Docker Data | Tested |
 | Local web dashboard | Planned |
 | Application Manager | Planned |
 
@@ -95,40 +98,66 @@ The current system is intentionally minimal. Its initial implementation focuses 
 
 Docker is a central part of RaviOS rather than an optional application installed after the operating system has booted.
 
-The Docker Engine package and its dependencies are integrated into the Buildroot configuration. The kernel configuration includes the cgroup and BPF features required by the current Docker runtime.
+The Docker Engine package and its dependencies are integrated into the Buildroot configuration. The kernel configuration includes the features required by the current Docker runtime.
 
-A dedicated storage partition is generated for Docker's persistent data. It uses ext4 and is mounted at:
+### Docker Data architecture
+
+Docker uses a dedicated ext4 filesystem mounted at:
 
 ```text
 /var/lib/docker
 ```
 
-The intended design separates:
+The storage architecture separates:
 
-- **System storage:** The operating system, kernel, bootloader, and system configuration.
-- **Docker Data:** Container images, writable layers, volumes, and other Docker-managed data.
+- System storage: The operating system, kernel, bootloader, and system configuration.
+- Docker Data: Container images, writable layers, volumes, and other Docker-managed data.
 
-The internal Docker Data partition is created as part of disk image generation. Its filesystem has a designated UUID and label so that the startup logic can identify it.
+Docker Data is validated using its designated filesystem UUID and filesystem label. The partition label `docker-data` is used as an additional discovery identifier, but is not mandatory. Explicit storage selections are persisted using stable disk identifiers and PARTUUID values, allowing RaviOS to locate the selected partition independently of device names.
+
+### Image build modes
+
+The build system supports two modes:
+
+- Create: Generates an internal Docker Data partition as part of the disk image. The partition uses the remaining available disk capacity.
+- None: Generates an image containing only the EFI and RootFS partitions, without reserving space for internal Docker Data.
+
+In both modes, RaviOS can discover an existing compatible Docker Data filesystem on the boot disk or an external disk.
+
+If no valid Docker Data storage is available, Docker does not start and does not fall back to storing its data in the RootFS.
+
+### Storage discovery and management
+
+RaviOS supports:
+
+- Automatic discovery of valid Docker Data partitions.
+- Boot-disk priority when selecting storage automatically.
+- Reuse of existing external Docker Data filesystems.
+- Persistent explicit selection using stable disk and partition identifiers.
+- Interactive switching between valid Docker Data destinations.
+- Status reporting and candidate listing.
+- Returning to automatic discovery by clearing an explicit selection.
+
+Existing Docker Data filesystems are never formatted as part of automatic discovery or storage switching.
+
+### Validation
 
 The current implementation has been tested by:
 
-- Building a disk image with a dedicated Docker Data partition.
-- Booting RaviOS and confirming that the partition is mounted at `/var/lib/docker`.
+- Building images with and without an internal Docker Data partition.
+- Booting both image types in VirtualBox.
+- Confirming that Docker remains stopped when storage is unavailable.
 - Pulling and running the `hello-world` container.
-- Rebooting the system and confirming that the downloaded image remains available.
+- Rebooting and confirming Docker image persistence.
+- Discovering and reusing an external Docker Data filesystem.
+- Confirming automatic boot-disk priority.
+- Persisting an explicit external storage selection across reboot.
+- Switching between internal and external Docker Data.
+- Confirming that containers remain available on their respective storage devices.
 
-The broader storage design aims to make Docker Data independent of a particular RaviOS installation. Compatible installations should be able to reuse an existing Docker Data filesystem without formatting it.
+For build parameters, storage behavior, management commands, and detailed validation results, see:
 
-The remaining storage work includes:
-
-- Confirming that Docker does not start against the RootFS when Docker Data is unavailable.
-- Testing discovery and reuse of an existing external Docker Data filesystem.
-- Testing recovery when an external device is detached or unavailable.
-- Defining and validating explicit storage switching and reset operations.
-
-An existing external Docker Data filesystem must never be formatted automatically. Docker must not silently fall back to storing data in the RootFS when the required data partition is unavailable.
-
-The missing-storage and external-device workflows are not yet considered validated.
+[Docker Engine Integration](docs/development/docker-engine.md)
 
 ## What belongs on the host?
 
@@ -141,7 +170,7 @@ The host is expected to contain:
 - SSH server.
 - Services required to operate RaviOS.
 
-Development runtimes such as Python, Node.js, and Go are **not planned as host installations**. They, along with databases and development tools, are intended to run as Docker containers.
+Development runtimes such as Python, Node.js, and Go are not planned as host installations. They, along with databases and development tools, are intended to run as Docker containers.
 
 Some optional management applications, such as container interfaces and monitoring services, may also run in containers.
 
@@ -151,7 +180,7 @@ See [Architecture Overview](docs/architecture/overview.md) for the current archi
 
 At a high level:
 
-```text
+```
 Hardware (generic x86_64)
        |
 Bootloader (GRUB 2)
@@ -175,7 +204,7 @@ The architecture is intentionally layered. The operating-system core provides th
 
 ## Build environment
 
-RaviOS uses [Buildroot](https://buildroot.org/) with a project-owned **Buildroot External Tree**.
+RaviOS uses [Buildroot](https://buildroot.org/) with a project-owned Buildroot External Tree.
 
 The development environment is provided through Docker, keeping the build toolchain and dependencies separate from the host operating system.
 
@@ -205,29 +234,33 @@ The build environment is containerized. Buildroot source, output, download cache
 
 From the project root, run:
 
-```powershell
+```
 .\build.ps1
 ```
 
-The default disk image size is 16 GB.
+The default configuration creates an internal Docker Data partition and uses a default disk image size of 16 GB.
 
 To select a different disk capacity:
 
-```powershell
-.\build.ps1 -DiskSize 5G
+```
+.\build.ps1 -DockerData Create -DiskSize 6G
 ```
 
-For example, a larger image can be generated with:
+To build an image without an internal Docker Data partition:
 
-```powershell
-.\build.ps1 -DiskSize 32G
+```
+.\build.ps1 -DockerData None
 ```
 
-The build script coordinates the build process and disk image generation.
+In `None` mode, the image size is calculated automatically from the required partitions. No additional disk capacity is reserved for Docker Data.
 
 For additional information about the development environment, dependencies, and manual package downloads, see:
 
 [Build Environment](docs/development/build-environment.md)
+
+For Docker integration and storage configuration, see:
+
+[Docker Engine Integration](docs/development/docker-engine.md)
 
 ## Project file handling
 
@@ -235,7 +268,7 @@ RaviOS uses Linux-style line endings (`LF`) for text files throughout the reposi
 
 The repository includes a PowerShell utility to normalize line endings:
 
-```powershell
+```
 .\normalize-line-endings.ps1
 ```
 
@@ -249,7 +282,7 @@ The script:
 
 A dry run is available:
 
-```powershell
+```
 .\normalize-line-endings.ps1 -WhatIf
 ```
 
@@ -268,25 +301,29 @@ The roadmap is intentionally staged.
 - Establish root login and SSH access.
 - Create a reproducible Docker-based build environment.
 
-### 2. Docker core — Implemented; further validation ongoing
+### 2. Docker core — Implemented
 
 - Enable the required kernel features.
 - Integrate Docker Engine and its dependencies.
 - Configure Docker daemon startup.
 - Configure container storage and networking.
-- Pull and run a test container successfully.
-- Continue testing runtime behavior and failure cases.
+- Pull and run test containers successfully.
+- Validate Docker runtime behavior in VirtualBox.
 
-### 3. Persistent storage and system services — In progress
+### 3. Persistent storage and system services — Core implementation completed
 
 - Define and generate the internal Docker Data partition.
+- Support image generation with and without internal Docker Data.
 - Initialize the Docker Data ext4 filesystem with its designated identity.
 - Mount Docker Data at `/var/lib/docker`.
 - Verify persistence across reboot.
-- Validate behavior when Docker Data is missing.
-- Test external Docker Data discovery and reuse.
-- Implement and validate explicit storage selection and switching.
-- Improve boot orchestration and logging.
+- Prevent Docker startup when valid Docker Data storage is unavailable.
+- Discover and reuse external Docker Data filesystems.
+- Support persistent explicit storage selection.
+- Implement interactive switching between storage destinations.
+- Validate internal and external storage switching.
+
+Further hardware testing and additional failure-recovery validation remain ongoing.
 
 ### 4. Management interface — Planned
 
@@ -313,7 +350,7 @@ The roadmap is intentionally staged.
 
 The current repository contains the following main components:
 
-```text
+```
 RaviOS/
 ├── .devcontainer/
 ├── buildroot-external/
@@ -380,6 +417,6 @@ See [Git Workflow](docs/development/git-workflow.md) for branching conventions, 
 
 ## License
 
-**Not selected yet.**
+Not selected yet.
 
 Until a license is added, do not assume that the repository is available for reuse, redistribution, or modification under an open-source license.

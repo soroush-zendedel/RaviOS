@@ -6,6 +6,7 @@ PIDFILE="/var/run/$DAEMON.pid"
 DATA_UUID="66666666-6666-6666-6666-666666666666"
 DATA_LABEL="revayat"
 MOUNTPOINT="/var/lib/docker"
+STATUS_FILE="/var/lib/ravios/docker-data/status"
 
 DOCKERD_ARGS=""
 
@@ -14,25 +15,56 @@ DOCKERD_ARGS=""
 check_docker_data() {
     printf "Checking Docker Data: "
 
-    DEVICES="$(blkid -c /dev/null -t "UUID=$DATA_UUID" -o device 2>/dev/null)"
+    [ -r "$STATUS_FILE" ] || {
+        echo "FAIL (status unavailable)"
+        return 1
+    }
 
-    if [ -z "$DEVICES" ]; then
-        echo "FAIL (partition not found)"
+    STATUS="$(awk -F= '$1 == "STATUS" {print $2}' "$STATUS_FILE")"
+    DEVICE="$(awk -F= '$1 == "DEVICE" {print $2}' "$STATUS_FILE")"
+    EXPECTED_DISK_ID="$(awk -F= '$1 == "DISK_ID" {print $2}' "$STATUS_FILE")"
+    EXPECTED_PARTUUID="$(awk -F= '$1 == "PARTUUID" {print $2}' "$STATUS_FILE")"
+
+    if [ "$STATUS" != "ready" ] ||
+       [ -z "$DEVICE" ] ||
+       [ -z "$EXPECTED_DISK_ID" ] ||
+       [ -z "$EXPECTED_PARTUUID" ]; then
+        echo "FAIL (storage is not ready)"
         return 1
     fi
 
-    set -- $DEVICES
+    DEVICE_REAL="$(readlink -f "$DEVICE" 2>/dev/null)"
 
-    if [ "$#" -ne 1 ]; then
-        echo "FAIL (duplicate UUID detected)"
+    if [ ! -b "$DEVICE_REAL" ]; then
+        echo "FAIL (device missing)"
         return 1
     fi
 
-    DEVICE="$1"
+    ACTUAL_PARTUUID="$(lsblk -ndo PARTUUID "$DEVICE_REAL" 2>/dev/null)"
+    PARENT="$(lsblk -ndo PKNAME "$DEVICE_REAL" 2>/dev/null)"
 
-    ACTUAL_UUID="$(blkid -p -s UUID -o value "$DEVICE" 2>/dev/null)"
-    ACTUAL_TYPE="$(blkid -p -s TYPE -o value "$DEVICE" 2>/dev/null)"
-    ACTUAL_LABEL="$(blkid -p -s LABEL -o value "$DEVICE" 2>/dev/null)"
+    [ -n "$PARENT" ] || {
+        echo "FAIL (parent disk unavailable)"
+        return 1
+    }
+
+    case "$PARENT" in
+        /dev/*) ;;
+        *) PARENT="/dev/$PARENT" ;;
+    esac
+
+    PARENT_REAL="$(readlink -f "$PARENT" 2>/dev/null)"
+    ACTUAL_DISK_ID="$(lsblk -ndo ID-LINK "$PARENT_REAL" 2>/dev/null)"
+
+    if [ "$ACTUAL_PARTUUID" != "$EXPECTED_PARTUUID" ] ||
+       [ "$ACTUAL_DISK_ID" != "$EXPECTED_DISK_ID" ]; then
+        echo "FAIL (device identity mismatch)"
+        return 1
+    fi
+
+    ACTUAL_UUID="$(blkid -p -s UUID -o value "$DEVICE_REAL" 2>/dev/null)"
+    ACTUAL_TYPE="$(blkid -p -s TYPE -o value "$DEVICE_REAL" 2>/dev/null)"
+    ACTUAL_LABEL="$(blkid -p -s LABEL -o value "$DEVICE_REAL" 2>/dev/null)"
 
     if [ "$ACTUAL_UUID" != "$DATA_UUID" ] ||
        [ "$ACTUAL_TYPE" != "ext4" ] ||
@@ -55,15 +87,10 @@ check_docker_data() {
         return 1
     fi
 
-    MOUNT_SOURCE="$1"
+    MOUNT_SOURCE="$(readlink -f "$1" 2>/dev/null)"
     MOUNT_TYPE="$2"
 
-    MOUNT_UUID="$(blkid -p -s UUID -o value "$MOUNT_SOURCE" 2>/dev/null)"
-    MOUNT_LABEL="$(blkid -p -s LABEL -o value "$MOUNT_SOURCE" 2>/dev/null)"
-
-    if [ "$MOUNT_UUID" != "$DATA_UUID" ] ||
-       [ "$MOUNT_TYPE" != "ext4" ] ||
-       [ "$MOUNT_LABEL" != "$DATA_LABEL" ]; then
+    if [ "$MOUNT_SOURCE" != "$DEVICE_REAL" ] || [ "$MOUNT_TYPE" != "ext4" ]; then
         echo "FAIL (wrong filesystem mounted)"
         return 1
     fi

@@ -1,5 +1,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
+    [ValidateSet("None", "Create")]
+    [string]$DockerData = "Create",
+
     [string]$DiskSize = "16G",
     [string]$OutputPath = ""
 )
@@ -63,14 +66,16 @@ function Get-VersionedPath {
 # Validation
 # ------------------------------------------------------------
 
-if ($DiskSize -notmatch '^([0-9]+)G$') {
-    throw "Invalid disk size. Use values such as 4G, 16G or 32G."
-}
+if ($DockerData -eq "Create") {
+    if ($DiskSize -notmatch '^([0-9]+)G$') {
+        throw "Invalid disk size. Use values such as 4G, 16G or 32G."
+    }
 
-$SizeGB = [int64]$Matches[1]
+    $SizeGB = [int64]$Matches[1]
 
-if ($SizeGB -lt 3) {
-    throw "Disk size must be at least 3G."
+    if ($SizeGB -lt 3) {
+        throw "Disk size must be at least 3G."
+    }
 }
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -170,7 +175,13 @@ $RawTempPath = Join-Path $RawDestinationDir ".$RawDestinationName.$BuildId.tmp"
 
 Write-Host ""
 Write-Host "========== RaviOS Build =========="
-Write-Host "Disk size:       $DiskSize"
+Write-Host "Docker Data:     $DockerData"
+if ($DockerData -eq "Create") {
+    Write-Host "Disk size:       $DiskSize"
+}
+else {
+    Write-Host "Disk size:       Automatic"
+}
 Write-Host "RAW output:      $RawFinalPath"
 Write-Host "SSH host port:   666"
 Write-Host "SSH guest port:  666"
@@ -194,15 +205,24 @@ try {
     Write-Host ""
     Write-Host "Building RaviOS..."
 
-    Invoke-Checked docker @(
+    $BuildArguments = @(
         "exec",
-        "-e", "RAVIOS_DISK_SIZE=$DiskSize",
+        "-e", "RAVIOS_DOCKER_DATA=$DockerData"
+    )
+
+    if ($DockerData -eq "Create") {
+        $BuildArguments += @("-e", "RAVIOS_DISK_SIZE=$DiskSize")
+    }
+
+    $BuildArguments += @(
         $BuildContainer,
         "make",
         "-C", "/workspace/buildroot",
         "O=/workspace/output",
         "BR2_EXTERNAL=/workspace/buildroot-external"
-    ) "RaviOS Buildroot build failed."
+    )
+
+    Invoke-Checked docker $BuildArguments "RaviOS Buildroot build failed."
 
     # --------------------------------------------------------
     # Validate Buildroot image

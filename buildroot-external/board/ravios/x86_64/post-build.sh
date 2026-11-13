@@ -12,3 +12,4 @@ cp -f "$TARGET_DIR/lib/grub/i386-pc/boot.img" \
 
 chmod 0755 "$TARGET_DIR/etc/init.d/S50docker-data"
 chmod 0755 "$TARGET_DIR/etc/init.d/S60dockerd"
+chmod 0755 "$TARGET_DIR/usr/sbin/ravios-docker-data"
