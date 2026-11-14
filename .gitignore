@@ -54,3 +54,9 @@ Thumbs.db
 *.raw
 
 /download_tmp/
+
+# Local backups and temporary files
+/local/
+
+# Generated build and VM artifacts
+/artifacts/

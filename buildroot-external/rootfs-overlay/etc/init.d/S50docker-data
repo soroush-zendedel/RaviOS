@@ -1,0 +1,25 @@
+#!/bin/sh
+
+start() {
+    printf "Checking Docker Data: "
+
+    if /usr/sbin/ravios-docker-data discover; then
+        echo "OK"
+    else
+        STATUS="$(awk -F= '$1 == "STATUS" {print $2}' /var/lib/ravios/docker-data/status 2>/dev/null)"
+        REASON="$(awk -F= '$1 == "REASON" {print $2}' /var/lib/ravios/docker-data/status 2>/dev/null)"
+        echo "UNAVAILABLE (${STATUS:-unknown}: ${REASON:-unknown})"
+    fi
+
+    return 0
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    *)
+        echo "Usage: $0 start"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,589 @@
+#!/bin/sh
+
+DATA_UUID="66666666-6666-6666-6666-666666666666"
+DATA_LABEL="revayat"
+DATA_PARTLABEL="docker-data"
+MOUNTPOINT="/var/lib/docker"
+
+CONFIG_DIR="/etc/ravios"
+CONFIG_FILE="$CONFIG_DIR/docker-data.conf"
+STATE_DIR="/var/lib/ravios/docker-data"
+STATUS_FILE="$STATE_DIR/status"
+CANDIDATES_FILE="$STATE_DIR/candidates"
+
+init_state() {
+    mkdir -p "$CONFIG_DIR" "$STATE_DIR"
+}
+
+atomic_write() {
+    TARGET="$1"
+    TEMP="${TARGET}.tmp.$$"
+
+    cat > "$TEMP" || {
+        rm -f "$TEMP"
+        return 1
+    }
+
+    mv -f "$TEMP" "$TARGET" || {
+        rm -f "$TEMP"
+        return 1
+    }
+}
+
+write_status() {
+    STATUS="$1"
+    DEVICE="${2:-}"
+    DISK_ID="${3:-}"
+    PARTUUID="${4:-}"
+    REASON="${5:-}"
+
+    {
+        echo "STATUS=$STATUS"
+        echo "DEVICE=$DEVICE"
+        echo "DISK_ID=$DISK_ID"
+        echo "PARTUUID=$PARTUUID"
+        echo "REASON=$REASON"
+    } | atomic_write "$STATUS_FILE"
+}
+
+read_selection() {
+    SELECTED_DISK_ID=""
+    SELECTED_PARTUUID=""
+
+    [ -r "$CONFIG_FILE" ] || return 0
+
+    while IFS='=' read -r key value; do
+        case "$key" in
+            DISK_ID) SELECTED_DISK_ID="$value" ;;
+            PARTUUID) SELECTED_PARTUUID="$value" ;;
+        esac
+    done < "$CONFIG_FILE"
+}
+
+get_root_disk() {
+    ROOT_SOURCE="$(findmnt -n -o SOURCE / 2>/dev/null)"
+    [ -n "$ROOT_SOURCE" ] || return 1
+
+    ROOT_PARENT="$(lsblk -ndo PKNAME "$ROOT_SOURCE" 2>/dev/null)"
+    [ -n "$ROOT_PARENT" ] || return 1
+
+    case "$ROOT_PARENT" in
+        /dev/*) ;;
+        *) ROOT_PARENT="/dev/$ROOT_PARENT" ;;
+    esac
+
+    ROOT_DISK="$(readlink -f "$ROOT_PARENT" 2>/dev/null)"
+    [ -b "$ROOT_DISK" ] || return 1
+
+    ROOT_DISK_ID="$(lsblk -ndo ID-LINK "$ROOT_DISK" 2>/dev/null)"
+    [ -n "$ROOT_DISK_ID" ] || return 1
+
+    return 0
+}
+
+get_partition_info() {
+    PART_DEVICE="$1"
+
+    PART_TYPE="$(blkid -p -s TYPE -o value "$PART_DEVICE" 2>/dev/null)"
+    PART_UUID="$(blkid -p -s UUID -o value "$PART_DEVICE" 2>/dev/null)"
+    PART_LABEL="$(blkid -p -s LABEL -o value "$PART_DEVICE" 2>/dev/null)"
+
+    [ "$PART_TYPE" = "ext4" ] &&
+    [ "$PART_UUID" = "$DATA_UUID" ] &&
+    [ "$PART_LABEL" = "$DATA_LABEL" ]
+}
+
+find_partition_by_uuid() {
+    EXPECTED_DISK="$1"
+    EXPECTED_PARTUUID="$2"
+    MATCH=""
+    MATCH_COUNT=0
+
+    while read -r name type parent partuuid; do
+        [ "$type" = "part" ] || continue
+        [ "$partuuid" = "$EXPECTED_PARTUUID" ] || continue
+
+        parent="$(readlink -f "$parent" 2>/dev/null)"
+        [ "$parent" = "$EXPECTED_DISK" ] || continue
+
+        MATCH="$name"
+        MATCH_COUNT=$((MATCH_COUNT + 1))
+    done <<EOF
+$(lsblk -nrpo NAME,TYPE,PKNAME,PARTUUID 2>/dev/null)
+EOF
+
+    [ "$MATCH_COUNT" -eq 1 ] || return 1
+    printf '%s\n' "$MATCH"
+}
+
+append_candidate() {
+    DEVICE="$1"
+    DISK_ID="$2"
+    PARTUUID="$3"
+    SOURCE="$4"
+    RESULT="$5"
+
+    printf '%s|%s|%s|%s|%s\n' \
+        "$DEVICE" "$DISK_ID" "$PARTUUID" "$SOURCE" "$RESULT" \
+        >> "$CANDIDATES_FILE"
+}
+
+discover_candidates() {
+    : > "$CANDIDATES_FILE"
+
+    get_root_disk || {
+        write_status "invalid" "" "" "" "cannot_identify_boot_disk"
+        return 1
+    }
+
+    while read -r name type parent partlabel partuuid; do
+        [ "$type" = "part" ] || continue
+
+        if [ "$partlabel" != "$DATA_PARTLABEL" ]; then
+            PART_UUID="$(blkid -p -s UUID -o value "$name" 2>/dev/null)"
+            [ "$PART_UUID" = "$DATA_UUID" ] || continue
+        fi
+
+        parent="$(readlink -f "$parent" 2>/dev/null)"
+        [ -n "$parent" ] || continue
+
+        disk_id="$(lsblk -ndo ID-LINK "$parent" 2>/dev/null)"
+        [ -n "$disk_id" ] || continue
+
+        if [ "$parent" = "$ROOT_DISK" ]; then
+            source="boot"
+        else
+            source="external"
+        fi
+
+        if get_partition_info "$name"; then
+            result="valid"
+        else
+            result="invalid"
+        fi
+
+        append_candidate "$name" "$disk_id" "$partuuid" "$source" "$result"
+    done <<EOF
+$(lsblk -nrpo NAME,TYPE,PKNAME,PARTLABEL,PARTUUID 2>/dev/null)
+EOF
+
+    return 0
+}
+
+mount_candidate() {
+    DEVICE="$1"
+    DISK_ID="$2"
+    PARTUUID="$3"
+
+    if ! get_partition_info "$DEVICE"; then
+        write_status "invalid" "$DEVICE" "$DISK_ID" "$PARTUUID" "invalid_filesystem"
+        return 1
+    fi
+
+    ACTUAL_PARTUUID="$(lsblk -ndo PARTUUID "$DEVICE" 2>/dev/null)"
+    if [ "$ACTUAL_PARTUUID" != "$PARTUUID" ]; then
+        write_status "invalid" "$DEVICE" "$DISK_ID" "$PARTUUID" "partuuid_mismatch"
+        return 1
+    fi
+
+    MOUNT_INFO="$(awk -v mp="$MOUNTPOINT" '$2 == mp {print $1, $3; exit}' /proc/mounts)"
+
+    if [ -n "$MOUNT_INFO" ]; then
+        set -- $MOUNT_INFO
+        MOUNT_SOURCE="$(readlink -f "$1" 2>/dev/null)"
+        DEVICE_REAL="$(readlink -f "$DEVICE" 2>/dev/null)"
+
+        if [ "$MOUNT_SOURCE" = "$DEVICE_REAL" ] && [ "$2" = "ext4" ]; then
+            write_status "ready" "$DEVICE" "$DISK_ID" "$PARTUUID" ""
+            return 0
+        fi
+
+        write_status "invalid" "$DEVICE" "$DISK_ID" "$PARTUUID" "mountpoint_occupied"
+        return 1
+    fi
+
+    mkdir -p "$MOUNTPOINT" || {
+        write_status "mount_failed" "$DEVICE" "$DISK_ID" "$PARTUUID" "mountpoint_creation_failed"
+        return 1
+    }
+
+    if ! mount -t ext4 "$DEVICE" "$MOUNTPOINT"; then
+        write_status "mount_failed" "$DEVICE" "$DISK_ID" "$PARTUUID" "mount_failed"
+        return 1
+    fi
+
+    write_status "ready" "$DEVICE" "$DISK_ID" "$PARTUUID" ""
+}
+
+discover() {
+    init_state
+    read_selection
+
+    if [ -n "$SELECTED_DISK_ID" ] || [ -n "$SELECTED_PARTUUID" ]; then
+        case "$SELECTED_DISK_ID" in
+            ""|*[!A-Za-z0-9._-]*)
+                write_status "invalid" "" "$SELECTED_DISK_ID" "$SELECTED_PARTUUID" "invalid_disk_id"
+                return 1
+                ;;
+        esac
+
+        case "$SELECTED_PARTUUID" in
+            ""|*[!A-Fa-f0-9-]*)
+                write_status "invalid" "" "$SELECTED_DISK_ID" "$SELECTED_PARTUUID" "invalid_partuuid"
+                return 1
+                ;;
+        esac
+
+        DISK_LINK="/dev/disk/by-id/$SELECTED_DISK_ID"
+        DISK_DEVICE="$(readlink -f "$DISK_LINK" 2>/dev/null)"
+
+        if [ ! -b "$DISK_DEVICE" ]; then
+            write_status "not_found" "" "$SELECTED_DISK_ID" "$SELECTED_PARTUUID" "selected_disk_missing"
+            return 1
+        fi
+
+        DEVICE="$(find_partition_by_uuid "$DISK_DEVICE" "$SELECTED_PARTUUID")" || {
+            write_status "not_found" "" "$SELECTED_DISK_ID" "$SELECTED_PARTUUID" "selected_partition_missing_or_ambiguous"
+            return 1
+        }
+
+        mount_candidate "$DEVICE" "$SELECTED_DISK_ID" "$SELECTED_PARTUUID"
+        return $?
+    fi
+
+    discover_candidates || return 1
+
+    INVALID_CANDIDATE="$(awk -F '|' '$5 == "invalid" {print; exit}' "$CANDIDATES_FILE")"
+    if [ -n "$INVALID_CANDIDATE" ]; then
+        IFS='|' read -r DEVICE DISK_ID PARTUUID SOURCE RESULT <<EOF
+$INVALID_CANDIDATE
+EOF
+        write_status "invalid" "$DEVICE" "$DISK_ID" "$PARTUUID" "invalid_docker_data_partition"
+        return 1
+    fi
+
+    BOOT_CANDIDATES="$(awk -F '|' '$4 == "boot" && $5 == "valid" {print}' "$CANDIDATES_FILE")"
+    EXTERNAL_CANDIDATES="$(awk -F '|' '$4 == "external" && $5 == "valid" {print}' "$CANDIDATES_FILE")"
+
+    if [ -n "$BOOT_CANDIDATES" ]; then
+        COUNT="$(printf '%s\n' "$BOOT_CANDIDATES" | awk 'END {print NR}')"
+        if [ "$COUNT" -ne 1 ]; then
+            write_status "ambiguous" "" "" "" "multiple_boot_candidates"
+            return 1
+        fi
+        CANDIDATE="$BOOT_CANDIDATES"
+    else
+
+        if [ -z "$EXTERNAL_CANDIDATES" ]; then
+            write_status "not_found" "" "" "" "no_valid_candidate"
+            return 1
+        fi
+
+        COUNT="$(printf '%s\n' "$EXTERNAL_CANDIDATES" | awk 'END {print NR}')"
+        if [ "$COUNT" -ne 1 ]; then
+            write_status "ambiguous" "" "" "" "multiple_external_candidates"
+            return 1
+        fi
+        CANDIDATE="$EXTERNAL_CANDIDATES"
+    fi
+
+    IFS='|' read -r DEVICE DISK_ID PARTUUID SOURCE RESULT <<EOF
+$CANDIDATE
+EOF
+
+    mount_candidate "$DEVICE" "$DISK_ID" "$PARTUUID"
+}
+
+change_data() {
+    init_state
+
+    discover_candidates || return 1
+
+    INVALID_COUNT="$(awk -F '|' '$5 == "invalid" {count++} END {print count+0}' "$CANDIDATES_FILE")"
+
+    if [ "$INVALID_COUNT" -gt 0 ]; then
+        echo "Error: Invalid Docker Data candidate detected."
+        echo "Resolve or disconnect the invalid candidate before switching."
+        return 1
+    fi
+
+    VALID_COUNT="$(awk -F '|' '$5 == "valid" {count++} END {print count+0}' "$CANDIDATES_FILE")"
+
+    if [ "$VALID_COUNT" -eq 0 ]; then
+        echo "No valid Docker Data candidates found."
+        return 1
+    fi
+
+    echo "Available Docker Data:"
+    INDEX=0
+
+    while IFS='|' read -r device disk_id partuuid source result; do
+        [ "$result" = "valid" ] || continue
+        INDEX=$((INDEX + 1))
+        printf '  %s) %s (%s)\n' "$INDEX" "$device" "$source"
+        printf '     Disk ID: %s\n' "$disk_id"
+    done < "$CANDIDATES_FILE"
+
+    echo
+    printf "Select destination [1-%s]: " "$VALID_COUNT"
+    read -r CHOICE
+
+    case "$CHOICE" in
+        ''|*[!0-9]*)
+            echo "Invalid selection."
+            return 1
+            ;;
+    esac
+
+    [ "$CHOICE" -ge 1 ] && [ "$CHOICE" -le "$VALID_COUNT" ] || {
+        echo "Invalid selection."
+        return 1
+    }
+
+    CANDIDATE="$(awk -F '|' -v n="$CHOICE" '$5 == "valid" {i++; if (i == n) print;}' "$CANDIDATES_FILE")"
+
+    IFS='|' read -r TARGET_DEVICE TARGET_DISK_ID TARGET_PARTUUID TARGET_SOURCE TARGET_RESULT <<EOF
+$CANDIDATE
+EOF
+
+    TARGET_REAL="$(readlink -f "$TARGET_DEVICE" 2>/dev/null)"
+    [ -b "$TARGET_REAL" ] && get_partition_info "$TARGET_REAL" || {
+        echo "Error: Destination is no longer a valid Docker Data partition."
+        return 1
+    }
+
+    ACTUAL_PARTUUID="$(lsblk -ndo PARTUUID "$TARGET_REAL" 2>/dev/null)"
+    TARGET_PARENT="$(lsblk -ndo PKNAME "$TARGET_REAL" 2>/dev/null)"
+    case "$TARGET_PARENT" in
+        /dev/*) ;;
+        "") echo "Error: Cannot identify destination disk."; return 1 ;;
+        *) TARGET_PARENT="/dev/$TARGET_PARENT" ;;
+    esac
+
+    TARGET_PARENT_REAL="$(readlink -f "$TARGET_PARENT" 2>/dev/null)"
+    ACTUAL_DISK_ID="$(lsblk -ndo ID-LINK "$TARGET_PARENT_REAL" 2>/dev/null)"
+    VERIFIED_PARTITION="$(find_partition_by_uuid "$TARGET_PARENT_REAL" "$TARGET_PARTUUID")"
+
+    if [ "$ACTUAL_PARTUUID" != "$TARGET_PARTUUID" ] ||
+       [ "$ACTUAL_DISK_ID" != "$TARGET_DISK_ID" ] ||
+       [ "$(readlink -f "$VERIFIED_PARTITION" 2>/dev/null)" != "$TARGET_REAL" ]; then
+        echo "Error: Destination disk identity verification failed."
+        return 1
+    fi
+    MOUNT_INFO="$(awk -v mp="$MOUNTPOINT" '$2 == mp {print $1, $3; exit}' /proc/mounts)"
+
+    if [ -n "$MOUNT_INFO" ]; then
+        set -- $MOUNT_INFO
+        CURRENT_MOUNT_SOURCE="$(readlink -f "$1" 2>/dev/null)"
+        CURRENT_MOUNT_TYPE="$2"
+
+        if [ "$CURRENT_MOUNT_SOURCE" = "$TARGET_REAL" ] &&
+           [ "$CURRENT_MOUNT_TYPE" = "ext4" ]; then
+            echo "Selected Docker Data is already active. No changes made."
+            return 0
+        fi
+
+        CURRENT_STATUS="$(awk -F= '$1 == "STATUS" {print $2}' "$STATUS_FILE" 2>/dev/null)"
+        CURRENT_DEVICE="$(awk -F= '$1 == "DEVICE" {print $2}' "$STATUS_FILE" 2>/dev/null)"
+        CURRENT_DEVICE_REAL="$(readlink -f "$CURRENT_DEVICE" 2>/dev/null)"
+
+        if [ "$CURRENT_STATUS" != "ready" ] ||
+           [ "$CURRENT_DEVICE_REAL" != "$CURRENT_MOUNT_SOURCE" ] ||
+           [ "$CURRENT_MOUNT_TYPE" != "ext4" ]; then
+            echo "Error: Existing mount is not recognized as valid Docker Data."
+            return 1
+        fi
+
+        CURRENT_DISK_ID="$(awk -F= '$1 == "DISK_ID" {print $2}' "$STATUS_FILE" 2>/dev/null)"
+        CURRENT_PARTUUID="$(awk -F= '$1 == "PARTUUID" {print $2}' "$STATUS_FILE" 2>/dev/null)"
+
+        if ! get_partition_info "$CURRENT_MOUNT_SOURCE"; then
+            echo "Error: Existing mount filesystem validation failed."
+            return 1
+        fi
+
+        CURRENT_ACTUAL_PARTUUID="$(lsblk -ndo PARTUUID "$CURRENT_MOUNT_SOURCE" 2>/dev/null)"
+        CURRENT_PARENT="$(lsblk -ndo PKNAME "$CURRENT_MOUNT_SOURCE" 2>/dev/null)"
+
+        case "$CURRENT_PARENT" in
+            /dev/*) ;;
+            "") echo "Error: Cannot identify current Docker Data disk."; return 1 ;;
+            *) CURRENT_PARENT="/dev/$CURRENT_PARENT" ;;
+        esac
+
+        CURRENT_PARENT_REAL="$(readlink -f "$CURRENT_PARENT" 2>/dev/null)"
+        CURRENT_ACTUAL_DISK_ID="$(lsblk -ndo ID-LINK "$CURRENT_PARENT_REAL" 2>/dev/null)"
+        CURRENT_VERIFIED_PARTITION="$(find_partition_by_uuid "$CURRENT_PARENT_REAL" "$CURRENT_PARTUUID")"
+
+        if [ -z "$CURRENT_DISK_ID" ] ||
+           [ -z "$CURRENT_PARTUUID" ] ||
+           [ "$CURRENT_ACTUAL_PARTUUID" != "$CURRENT_PARTUUID" ] ||
+           [ "$CURRENT_ACTUAL_DISK_ID" != "$CURRENT_DISK_ID" ] ||
+           [ "$(readlink -f "$CURRENT_VERIFIED_PARTITION" 2>/dev/null)" != "$CURRENT_MOUNT_SOURCE" ]; then
+            echo "Error: Existing Docker Data disk identity verification failed."
+            return 1
+        fi
+    fi
+
+    if start-stop-daemon --stop --test --quiet \
+        --pidfile /var/run/dockerd.pid --exec /usr/bin/dockerd; then
+        echo "Stopping Docker..."
+        /etc/init.d/S60dockerd stop || {
+            write_status "mount_failed" "$TARGET_DEVICE" "$TARGET_DISK_ID" "$TARGET_PARTUUID" "docker_stop_failed"
+            echo "Error: Cannot stop Docker. No disk was changed."
+            return 1
+        }
+    fi
+
+    if [ -n "$MOUNT_INFO" ]; then
+        echo "Unmounting current Docker Data..."
+        umount "$MOUNTPOINT" || {
+            write_status "mount_failed" "$TARGET_DEVICE" "$TARGET_DISK_ID" "$TARGET_PARTUUID" "unmount_failed"
+            echo "Error: Cannot unmount current Docker Data. Docker remains stopped."
+            return 1
+        }
+    fi
+
+    echo "Mounting destination..."
+    mount_candidate "$TARGET_DEVICE" "$TARGET_DISK_ID" "$TARGET_PARTUUID" || {
+        echo "Error: Cannot mount destination. Docker remains stopped."
+        return 1
+    }
+
+    {
+        echo "DISK_ID=$TARGET_DISK_ID"
+        echo "PARTUUID=$TARGET_PARTUUID"
+    } | atomic_write "$CONFIG_FILE" || {
+        write_status "mount_failed" "$TARGET_DEVICE" "$TARGET_DISK_ID" "$TARGET_PARTUUID" "selection_save_failed"
+        echo "Error: Cannot save destination selection. Docker remains stopped."
+        return 1
+    }
+
+    echo "Starting Docker..."
+    /etc/init.d/S60dockerd start || {
+        echo "Error: Docker could not start. Docker Data remains mounted."
+        return 1
+    }
+
+    echo "Docker Data changed successfully."
+}
+
+show_status() {
+    init_state
+
+    if [ -r "$STATUS_FILE" ]; then
+        cat "$STATUS_FILE"
+    else
+        echo "STATUS=unknown"
+    fi
+}
+
+list_candidates() {
+    init_state
+
+    if [ -s "$CANDIDATES_FILE" ]; then
+        while IFS='|' read -r device disk_id partuuid source result; do
+            echo "DEVICE=$device"
+            echo "DISK_ID=$disk_id"
+            echo "PARTUUID=$partuuid"
+            echo "SOURCE=$source"
+            echo "RESULT=$result"
+            echo
+        done < "$CANDIDATES_FILE"
+    else
+        echo "No candidates recorded."
+    fi
+}
+
+select_candidate() {
+    DEVICE="$1"
+
+    [ -b "$DEVICE" ] || {
+        echo "Error: Not a block device: $DEVICE" >&2
+        return 1
+    }
+
+    PART_DEVICE_TYPE="$(lsblk -ndo TYPE "$DEVICE" 2>/dev/null)"
+    [ "$PART_DEVICE_TYPE" = "part" ] || {
+        echo "Error: Device is not a partition." >&2
+        return 1
+    }
+
+    get_partition_info "$DEVICE" || {
+        echo "Error: Invalid Docker Data filesystem." >&2
+        return 1
+    }
+
+    PART_UUID_ID="$(lsblk -ndo PARTUUID "$DEVICE" 2>/dev/null)"
+    PARENT="$(lsblk -ndo PKNAME "$DEVICE" 2>/dev/null)"
+
+    [ -n "$PART_UUID_ID" ] && [ -n "$PARENT" ] || {
+        echo "Error: Cannot identify partition or parent disk." >&2
+        return 1
+    }
+
+    case "$PARENT" in
+        /dev/*) ;;
+        *) PARENT="/dev/$PARENT" ;;
+    esac
+
+    PARENT="$(readlink -f "$PARENT" 2>/dev/null)"
+    DISK_ID="$(lsblk -ndo ID-LINK "$PARENT" 2>/dev/null)"
+
+    [ -n "$DISK_ID" ] || {
+        echo "Error: Cannot identify parent disk." >&2
+        return 1
+    }
+
+    case "$DISK_ID" in
+        *[!A-Za-z0-9._-]*)
+            echo "Error: Invalid disk identifier." >&2
+            return 1
+            ;;
+    esac
+
+    {
+        echo "DISK_ID=$DISK_ID"
+        echo "PARTUUID=$PART_UUID_ID"
+    } | atomic_write "$CONFIG_FILE" || return 1
+
+    echo "Selection saved: $DISK_ID / $PART_UUID_ID"
+}
+
+clear_selection() {
+    rm -f "$CONFIG_FILE"
+    echo "Automatic discovery enabled."
+}
+
+case "$1" in
+    change)
+        init_state
+        change_data
+        ;;
+    discover|retry)
+        discover
+        ;;
+    status)
+        show_status
+        ;;
+    list)
+        list_candidates
+        ;;
+    select)
+        [ "$#" -eq 2 ] || {
+            echo "Usage: $0 select <device>" >&2
+            exit 1
+        }
+        init_state
+        select_candidate "$2"
+        ;;
+    clear)
+        init_state
+        clear_selection
+        discover
+        ;;
+    *)
+        echo "Usage: $0 {status|list|select <device>|change|clear|retry}"
+        exit 1
+        ;;
+esac
