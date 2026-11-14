@@ -30,6 +30,11 @@ $RawStageContainerPath = "/workspace/artifacts/$RawStageName"
 $TempVdiPath = Join-Path $ArtifactsDir ".RaviOS-Dev-$BuildId.pending.vdi"
 $RawTempPath = $null
 
+$LogDirectory = Join-Path $ArtifactsDir "logs"
+$LogPath = Join-Path $LogDirectory "build-$BuildId.log"
+$TranscriptStarted = $false
+$InventoryScriptPath = Join-Path $ProjectRoot "tools\generate-system-inventory.ps1"
+
 # ------------------------------------------------------------
 # Helper
 # ------------------------------------------------------------
@@ -60,6 +65,35 @@ function Get-VersionedPath {
     $Extension = [System.IO.Path]::GetExtension($Path)
 
     return Join-Path $Directory "$Name-$Suffix$Extension"
+}
+
+function Invoke-SystemInventory {
+    Write-Host ""
+    Write-Host "Generating RaviOS system inventory..."
+
+    try {
+        if (-not (Test-Path -LiteralPath $InventoryScriptPath -PathType Leaf)) {
+            throw "Inventory generator was not found: $InventoryScriptPath"
+        }
+
+        $InventoryDiskSize = if ($DockerData -eq "Create") {
+            $DiskSize
+        }
+        else {
+            "Automatic"
+        }
+
+        & $InventoryScriptPath `
+            -Container $BuildContainer `
+            -BuildId $BuildId `
+            -DockerDataMode $DockerData `
+            -DiskSize $InventoryDiskSize
+
+        Write-Host "System inventory generation completed."
+    }
+    catch {
+        Write-Warning "System inventory generation failed. The previous report, if any, was preserved. $($_.Exception.Message)"
+    }
 }
 
 # ------------------------------------------------------------
@@ -170,6 +204,21 @@ if ([string]::IsNullOrWhiteSpace($RawDestinationName)) {
 }
 
 $RawTempPath = Join-Path $RawDestinationDir ".$RawDestinationName.$BuildId.tmp"
+# Start build transcript
+# ------------------------------------------------------------
+
+try {
+    if (-not (Test-Path -LiteralPath $LogDirectory -PathType Container)) {
+        New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+    }
+
+    Start-Transcript -Path $LogPath -Force | Out-Null
+    $TranscriptStarted = $true
+}
+catch {
+    Write-Warning "Could not start build transcript: $($_.Exception.Message)"
+}
+
 # Display plan
 # ------------------------------------------------------------
 
@@ -430,6 +479,8 @@ try {
 
     if ($ExistingVM -and -not $ReplaceVM) {
 
+        Invoke-SystemInventory
+
         Write-Host ""
         Write-Host "Existing RaviOS-Dev was left untouched."
         Write-Host "No new VM was created."
@@ -518,6 +569,8 @@ try {
         "startvm", $VmName, "--type", "gui"
     ) "Could not start RaviOS-Dev."
 
+    Invoke-SystemInventory
+
     Write-Host ""
     Write-Host "========== RaviOS Build Completed =========="
     Write-Host "RAW image: $RawFinalPath"
@@ -529,6 +582,15 @@ try {
 
 }
 finally {
+
+    if ($TranscriptStarted) {
+        try {
+            Stop-Transcript | Out-Null
+        }
+        catch {
+            Write-Warning "Could not stop build transcript: $($_.Exception.Message)"
+        }
+    }
 
     if (Test-Path -LiteralPath $RawStageHostPath) {
         Remove-Item -LiteralPath $RawStageHostPath -Force

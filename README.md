@@ -254,6 +254,8 @@ To build an image without an internal Docker Data partition:
 
 In `None` mode, the image size is calculated automatically from the required partitions. No additional disk capacity is reserved for Docker Data.
 
+Each successful image build also generates a system inventory report at `docs/system-inventory.md`, covering the build configuration, installed system contents, kernel options, and disk image layout. See [System Inventory](docs/development/system-inventory.md) for details.
+
 For additional information about the development environment, dependencies, and manual package downloads, see:
 
 [Build Environment](docs/development/build-environment.md)
@@ -412,6 +414,7 @@ See [Git Workflow](docs/development/git-workflow.md) for branching conventions, 
 - [Architecture Overview](docs/architecture/overview.md) — System architecture, design boundaries, and technical decisions.
 - [Build Environment](docs/development/build-environment.md) — Build setup, Docker volumes, download cache management, and manual package downloads.
 - [Docker Engine](docs/development/docker-engine.md) — Docker integration, kernel requirements, runtime validation, and persistent data storage.
+- [System Inventory](docs/development/system-inventory.md) — Automatic inventory generation, report contents, and interpretation.
 - [Kernel Configuration Reproducibility Issue](docs/development/kernel-config-reproducibility-issue.md) — Problem statement and proposed work for making kernel configuration reproducible.
 - [Git Workflow](docs/development/git-workflow.md) — Branching, commits, tags, and development practices.
 
