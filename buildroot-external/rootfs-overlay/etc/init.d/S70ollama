@@ -1,0 +1,176 @@
+#!/bin/sh
+
+IMAGE="ravi-ollama:cpu"
+CONTAINER="ravi-ollama"
+MODEL_VOLUME="ravi-ollama-models"
+
+OFFLINE_DIR="/usr/share/ravios/offline/ollama"
+IMAGE_ARCHIVE="$OFFLINE_DIR/image/ravi-ollama-image.tar"
+MODEL_ARCHIVE="$OFFLINE_DIR/models/qwen2.5-0.5b.tar"
+
+MANIFEST="manifests/registry.ollama.ai/library/qwen2.5/0.5b"
+
+check_model() {
+    [ -s "$MODEL_MOUNTPOINT/$MANIFEST" ] || return 1
+
+    for blob in \
+        005f95c7475154a17e84b85cd497949d6dd2a4f9d77c096e3c66e4d9c32acaf5 \
+        c5396e06af294bd101b30dce59131a76d2b773e76950acc870eda801d3ab0515 \
+        66b9ea09bd5b7099cbb4fc820f31b575c0366fa439b08245566692c6784e281e \
+        eb4402837c7829a690fa845de4d7f3fd842c2adee476d5341da8a46ea9255175 \
+        832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e
+    do
+        [ -s "$MODEL_MOUNTPOINT/blobs/sha256-$blob" ] || return 1
+    done
+
+    return 0
+}
+
+start() {
+    printf "Checking Docker Data: "
+
+    STATUS="$(awk -F= '$1 == "STATUS" {print $2}' \
+        /var/lib/ravios/docker-data/status 2>/dev/null)"
+
+    if [ "$STATUS" != "ready" ] ||
+       ! awk '$2 == "/var/lib/docker" && $3 == "ext4" {found=1} END {exit !found}' /proc/mounts; then
+        echo "FAIL"
+        echo "Error: Docker Data is unavailable."
+        return 1
+    fi
+
+    echo "OK"
+
+    printf "Waiting for Docker Engine: "
+
+    attempt=0
+    until docker info >/dev/null 2>&1; do
+        attempt=$((attempt + 1))
+
+        if [ "$attempt" -ge 30 ]; then
+            echo "FAIL"
+            echo "Error: Docker Engine is not ready."
+            return 1
+        fi
+
+        sleep 1
+    done
+
+    echo "OK"
+
+    printf "Checking Ollama Image: "
+
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        if [ ! -s "$IMAGE_ARCHIVE" ]; then
+            echo "FAIL"
+            echo "Error: Offline Ollama Image archive is missing."
+            return 1
+        fi
+
+        echo "Loading offline Image..."
+        docker load -i "$IMAGE_ARCHIVE" || {
+            echo "Error: Cannot load Ollama Image."
+            return 1
+        }
+    fi
+
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || {
+        echo "Error: Ollama Image is unavailable after loading."
+        return 1
+    }
+
+    echo "OK"
+
+    printf "Checking model Volume: "
+
+    if ! docker volume inspect "$MODEL_VOLUME" >/dev/null 2>&1; then
+        docker volume create "$MODEL_VOLUME" >/dev/null || {
+            echo "FAIL"
+            echo "Error: Cannot create model Volume."
+            return 1
+        }
+    fi
+
+    MODEL_MOUNTPOINT="$(docker volume inspect \
+        --format '{{.Mountpoint}}' "$MODEL_VOLUME" 2>/dev/null)"
+
+    if [ -z "$MODEL_MOUNTPOINT" ] || [ ! -d "$MODEL_MOUNTPOINT" ]; then
+        echo "FAIL"
+        echo "Error: Model Volume mountpoint is unavailable."
+        return 1
+    fi
+
+    echo "OK"
+
+    printf "Checking Qwen 2.5 0.5B model: "
+
+    if ! check_model; then
+        if [ ! -s "$MODEL_ARCHIVE" ]; then
+            echo "FAIL"
+            echo "Error: Offline Qwen model archive is missing."
+            return 1
+        fi
+
+        echo "Extracting offline model..."
+
+        tar -xf "$MODEL_ARCHIVE" -C "$MODEL_MOUNTPOINT" || {
+            echo "Error: Cannot extract Qwen model."
+            return 1
+        }
+    fi
+
+    if ! check_model; then
+        echo "FAIL"
+        echo "Error: Qwen model files are incomplete."
+        return 1
+    fi
+
+    echo "OK"
+
+    printf "Checking Ollama Container: "
+
+    if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
+        RUNNING="$(docker inspect --format '{{.State.Running}}' \
+            "$CONTAINER" 2>/dev/null)"
+
+        if [ "$RUNNING" != "true" ]; then
+            docker start "$CONTAINER" >/dev/null || {
+                echo "FAIL"
+                echo "Error: Cannot start Ollama Container."
+                return 1
+            }
+        fi
+
+        echo "OK"
+    else
+        echo "Creating Container..."
+
+        docker run -d \
+            --name "$CONTAINER" \
+            --restart unless-stopped \
+            -p 11434:11434 \
+            -v "$MODEL_VOLUME:/models" \
+            -e OLLAMA_HOST=0.0.0.0:11434 \
+            -e OLLAMA_MODELS=/models \
+            -e OLLAMA_NO_CLOUD=true \
+            -e OLLAMA_NOPRUNE=true \
+            -e OLLAMA_VULKAN=false \
+            "$IMAGE" || {
+                echo "Error: Cannot create Ollama Container."
+                return 1
+            }
+    fi
+
+    echo "Ollama started successfully."
+    return 0
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    *)
+        echo "Usage: $0 start"
+        exit 1
+        ;;
+esac

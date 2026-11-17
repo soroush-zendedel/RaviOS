@@ -465,6 +465,10 @@ EOF
         return 1
     }
 
+    if ! /etc/init.d/S70ollama start; then
+        echo "Warning: Docker Data changed successfully, but Ollama could not start."
+    fi
+
     echo "Docker Data changed successfully."
 }
 
