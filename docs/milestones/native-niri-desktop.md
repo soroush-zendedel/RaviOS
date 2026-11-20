@@ -145,7 +145,15 @@ Build inventory at the time of the final build:
 | Non-BusyBox Symbolic Links | 36 |
 | Active Kernel Options | 1333 |
 
-## 7. Important Implementation Notes
+## 7. First Successful Desktop Launch
+
+The first successful launch of the native Niri desktop was verified in RaviOS running under VMware. The screenshot below records this initial graphical session, with the Foot terminal running inside the Niri Wayland environment.
+
+![First successful native Niri desktop launch](assets/native-niri-desktop-first-run.png)
+
+*First successful native Niri desktop launch on RaviOS.*
+
+## 8. Important Implementation Notes
 
 - The desktop is based on Niri rather than a traditional GNOME or KDE desktop shell.
 - Foot is used as the integrated terminal emulator.
@@ -154,7 +162,7 @@ Build inventory at the time of the final build:
 - GNOME Portal remains an optional component with dependency compatibility considerations.
 - The AppStream cross-build patch prevents CLI metainfo generation from relying on unavailable target-side execution during cross-compilation.
 
-## 8. Known Limitations and Future Work
+## 9. Known Limitations and Future Work
 
 This milestone establishes the initial native desktop foundation. It does not represent completion of all desktop functionality.
 
@@ -173,7 +181,7 @@ Potential future development areas include:
 
 Optional desktop components must be enabled only after their dependencies are compatible with the selected Buildroot package versions.
 
-## 9. Git and Release Information
+## 10. Git and Release Information
 
 | Property | Value |
 | --- | --- |
@@ -188,7 +196,7 @@ GitHub Release:
 
 <https://github.com/soroush-zendedel/RaviOS/releases/tag/milestone%2Fnative-niri-desktop>
 
-## 10. Milestone Status
+## 11. Milestone Status
 
 ### Completed: Initial Native Niri Desktop Integration
 
