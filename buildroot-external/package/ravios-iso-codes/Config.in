@@ -1,0 +1,4 @@
+config BR2_PACKAGE_RAVIOS_ISO_CODES
+    bool "ravios-iso-codes"
+    help
+      ISO code lists for GNOME Desktop.

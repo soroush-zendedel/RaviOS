@@ -1,0 +1,104 @@
+#!/bin/sh
+
+set -eu
+
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ravios-session: currently only root sessions are supported" >&2
+    exit 1
+fi
+
+RUNTIME_DIR=/run/user/0
+SESSION_HOOK_DIR=/etc/ravios/session.d
+
+mkdir -p "$RUNTIME_DIR" "$SESSION_HOOK_DIR"
+chmod 0700 "$RUNTIME_DIR"
+
+export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=niri
+export XDG_SESSION_DESKTOP=niri
+export LIBSEAT_BACKEND=seatd
+export PATH=/usr/bin:/usr/sbin:/bin:/sbin
+
+exec /usr/bin/dbus-run-session -- /bin/sh -c '
+    set -eu
+
+    hook_pids=""
+
+    /usr/bin/pipewire &
+    pw_pid=$!
+
+    /usr/bin/wireplumber &
+    wp_pid=$!
+
+    cleanup() {
+        for pid in $hook_pids; do
+            kill "$pid" 2>/dev/null || true
+        done
+        kill "$wp_pid" "$pw_pid" 2>/dev/null || true
+
+        for pid in $hook_pids "$wp_pid" "$pw_pid"; do
+            wait "$pid" 2>/dev/null || true
+        done
+    }
+
+    trap cleanup EXIT
+    trap "exit 130" INT
+    trap "exit 143" TERM
+    trap "exit 129" HUP
+
+    sleep 1
+
+    if ! kill -0 "$pw_pid" 2>/dev/null; then
+        echo "ravios-session: PipeWire failed to start" >&2
+        exit 1
+    fi
+
+    if ! kill -0 "$wp_pid" 2>/dev/null; then
+        echo "ravios-session: WirePlumber failed to start" >&2
+        exit 1
+    fi
+
+    /usr/bin/niri --session &
+    niri_pid=$!
+
+    niri_socket=""
+    count=0
+
+    while [ "$count" -lt 10 ]; do
+        for candidate in "$XDG_RUNTIME_DIR"/niri.*.sock; do
+            [ -S "$candidate" ] || continue
+            niri_socket=$candidate
+            break
+        done
+
+        [ -n "$niri_socket" ] && break
+        kill -0 "$niri_pid" 2>/dev/null || break
+        sleep 1
+        count=$((count + 1))
+    done
+
+    if [ -n "$niri_socket" ]; then
+        socket_name=${niri_socket##*/}
+        display=${socket_name#niri.}
+        display=${display%.*.sock}
+
+        export NIRI_SOCKET="$niri_socket"
+        export WAYLAND_DISPLAY="$display"
+
+        for hook in /etc/ravios/session.d/*.sh; do
+            [ -f "$hook" ] || continue
+            [ -x "$hook" ] || continue
+            "$hook" &
+            hook_pids="$hook_pids $!"
+        done
+    else
+        echo "ravios-session: Niri IPC socket not detected; skipping session hooks" >&2
+    fi
+
+    wait "$niri_pid"
+'

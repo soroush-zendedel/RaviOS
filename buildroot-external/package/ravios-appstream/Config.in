@@ -1,0 +1,18 @@
+config BR2_PACKAGE_RAVIOS_APPSTREAM
+bool "AppStream"
+depends on BR2_USE_MMU
+depends on BR2_USE_WCHAR
+depends on BR2_TOOLCHAIN_HAS_THREADS
+depends on !BR2_STATIC_LIBS
+select BR2_PACKAGE_LIBGLIB2
+select BR2_PACKAGE_LIBCURL
+select BR2_PACKAGE_LIBXML2
+select BR2_PACKAGE_LIBYAML
+select BR2_PACKAGE_LIBXMLB
+help
+  AppStream metadata library and command-line utility.
+  Used by libadwaita for application metadata.
+
+comment "AppStream needs a toolchain w/ wchar, threads, dynamic library"
+depends on BR2_USE_MMU
+depends on !BR2_USE_WCHAR || !BR2_TOOLCHAIN_HAS_THREADS || BR2_STATIC_LIBS

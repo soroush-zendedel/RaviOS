@@ -22,7 +22,7 @@ services:
       - buildroot-ccache:/root/.buildroot-ccache
 
       # RaviOS external configuration
-      - ./buildroot-external:/workspace/buildroot-external:ro
+      - ./buildroot-external:/workspace/buildroot-external
 
       # Final artifacts exported to Windows
       - ./artifacts:/workspace/artifacts

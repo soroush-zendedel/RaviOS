@@ -6,16 +6,16 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261114-035549-15216 |
-| Generated | 2026-11-14 03:56:40 +03:30 |
+| Build ID | 20261120-093128-14624 |
+| Generated | 2026-11-20 09:33:19 +03:30 |
 | Hostname | ravios |
 | Buildroot | 2026.08.1 |
 | Linux Kernel | 7.3.3 |
 | BusyBox | 1.38.0 |
 | Docker Engine | 28.5.2 |
 | Docker Data mode | Create |
-| Requested disk size | 5G |
-| RootFS configured size | 1024M |
+| Requested disk size | 6G |
+| RootFS configured size | 3072M |
 
 ## Platform Summary
 
@@ -24,11 +24,11 @@
 | Docker Engine | y |
 | Docker CLI | y |
 | Kernel User Namespaces | Not set |
-| Installed Target packages | 39 |
+| Installed Target packages | 100 |
 | BusyBox applet links | 263 |
-| Standalone executable files | 148 |
-| Non-BusyBox symbolic links | 33 |
-| Active Kernel options (=y or =m) | 1331 |
+| Standalone executable files | 257 |
+| Non-BusyBox symbolic links | 36 |
+| Active Kernel options (=y or =m) | 1333 |
 
 ## Important Notes
 
@@ -76,16 +76,82 @@
 | expat | 2.9.0 |
 | gcc-final | 15.3.0 |
 | glibc | 2.44-57-g34106fee698c83eb0af71d4d0381e66b399be746 |
+| libcamera | Not available |
+| libclc | 22.1.8 |
+| libcurl | 8.22.0 |
+| libdrm | 2.4.134 |
+| libepoxy | 1.5.10 |
+| libevdev | 1.13.5 |
 | libffi | 3.8.0 |
+| libfribidi | 1.0.16 |
+| libfuse3 | 3.18.3 |
 | libglib2 | 2.88.3 |
+| libgtk4 | 4.21.0 |
+| libinput | 1.31.3 |
 | libnl | 3.12.0 |
+| libpng | 1.6.59 |
+| libpthread-stubs | 0.5 |
+| librsvg | 2.50.9 |
 | libseccomp | 2.6.1 |
+| libtasn1 | 4.21.0 |
+| libunistring | 1.4.2 |
+| libv4l | 1.32.0 |
 | libxcrypt | 4.5.2 |
+| libxkbcommon | 1.9.2 |
+| libxml2 | 2.15.4 |
+| libxmlb | 0.3.27 |
+| libyaml | 0.2.5 |
 | libzlib | 1.3.2 |
 | ncurses | 6.6-20251231 |
 | pcre2 | 10.49 |
 | readline | 8.3 |
 | toolchain | Unversioned |
+
+### Other
+
+| Package | Version |
+|---|---|
+| alsa-lib | 1.2.16.1 |
+| bluez5_utils | 5.86 |
+| cairo | 1.18.4 |
+| clang | 22.1.8 |
+| dejavu | 2.37 |
+| fcft | 3.3.2 |
+| fontconfig | 2.17.1 |
+| foot | 1.26.0 |
+| freetype | 2.14.3 |
+| gdk-pixbuf | 2.42.12 |
+| gmp | 6.3.0 |
+| gnutls | 3.8.13 |
+| graphene | 1.10.8 |
+| gsettings-desktop-schemas | 47.1 |
+| gst1-plugins-base | 1.24.13 |
+| gstreamer1 | 1.24.13 |
+| harfbuzz | 14.3.1 |
+| hwdata | 0.412 |
+| jpeg-turbo | 3.2.0 |
+| json-glib | 1.10.8 |
+| llvm | 22.1.8 |
+| lua | 5.4.8 |
+| mesa3d | 26.1.8 |
+| nettle | 3.10.2 |
+| niri | 8ed0da44d974c32c6877d2f4630c314da0717ecb |
+| pango | 1.58.0 |
+| pipewire | 1.6.6 |
+| pixman | 0.46.4 |
+| ravios-appstream | 1.0.5 |
+| ravios-gnome-desktop | 51.0 |
+| ravios-iso-codes | Not available |
+| ravios-libadwaita | 1.7.6 |
+| ravios-libdisplay-info-03 | 0.3.0 |
+| ravios-session | Unversioned |
+| seatd | 0.9.1 |
+| spirv-llvm-translator | 22.1.3 |
+| spirv-tools | 1.4.350.0 |
+| tiff | 4.7.2 |
+| wayland | 1.24.0 |
+| wireplumber | 0.5.14 |
+| xkeyboard-config | 2.49 |
 
 ### Storage and System Tools
 
@@ -455,7 +521,12 @@ Regular executable files found in the standard command directories.
 - `/sbin/tune2fs`
 - `/sbin/udevd`
 - `/usr/bin/acpi_listen`
+- `/usr/bin/amdgpu-arch`
+- `/usr/bin/analyze-build`
+- `/usr/bin/appstreamcli`
+- `/usr/bin/aserver`
 - `/usr/bin/bits`
+- `/usr/bin/cairo-trace`
 - `/usr/bin/choom`
 - `/usr/bin/col`
 - `/usr/bin/colcrt`
@@ -474,16 +545,34 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/dbus-test-tool`
 - `/usr/bin/dbus-update-activation-environment`
 - `/usr/bin/dbus-uuidgen`
+- `/usr/bin/diagtool`
+- `/usr/bin/di-edid-decode`
 - `/usr/bin/docker`
 - `/usr/bin/dockerd`
 - `/usr/bin/docker-proxy`
 - `/usr/bin/enosys`
 - `/usr/bin/exch`
 - `/usr/bin/fadvise`
+- `/usr/bin/fc-cache`
+- `/usr/bin/fc-cat`
+- `/usr/bin/fc-conflist`
+- `/usr/bin/fc-list`
+- `/usr/bin/fc-match`
+- `/usr/bin/fc-pattern`
+- `/usr/bin/fc-query`
+- `/usr/bin/fc-scan`
+- `/usr/bin/fc-validate`
 - `/usr/bin/fincore`
 - `/usr/bin/flock`
+- `/usr/bin/foot`
+- `/usr/bin/footclient`
+- `/usr/bin/fribidi`
+- `/usr/bin/fusermount3`
 - `/usr/bin/gapplication`
 - `/usr/bin/gdbus`
+- `/usr/bin/gdk-pixbuf-csource`
+- `/usr/bin/gdk-pixbuf-pixdata`
+- `/usr/bin/gdk-pixbuf-query-loaders`
 - `/usr/bin/getopt`
 - `/usr/bin/gi-compile-repository`
 - `/usr/bin/gi-decompile-typelib`
@@ -492,8 +581,35 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/gio-querymodules`
 - `/usr/bin/gresource`
 - `/usr/bin/gsettings`
+- `/usr/bin/gst-inspect-1.0`
+- `/usr/bin/gst-launch-1.0`
+- `/usr/bin/gst-stats-1.0`
+- `/usr/bin/gst-typefind-1.0`
+- `/usr/bin/gtk4-broadwayd`
+- `/usr/bin/gtk4-builder-tool`
+- `/usr/bin/gtk4-encode-symbolic-svg`
+- `/usr/bin/gtk4-image-tool`
+- `/usr/bin/gtk4-launch`
+- `/usr/bin/gtk4-path-tool`
+- `/usr/bin/gtk4-query-settings`
+- `/usr/bin/gtk4-rendernode-tool`
+- `/usr/bin/gtk4-update-icon-cache`
+- `/usr/bin/hb-info`
+- `/usr/bin/hb-raster`
+- `/usr/bin/hb-shape`
+- `/usr/bin/hb-subset`
+- `/usr/bin/hb-vector`
+- `/usr/bin/hb-view`
 - `/usr/bin/hexdump`
+- `/usr/bin/hmaptool`
+- `/usr/bin/intercept-build`
 - `/usr/bin/isosize`
+- `/usr/bin/json-glib-format`
+- `/usr/bin/json-glib-validate`
+- `/usr/bin/libcamera-bug-report`
+- `/usr/bin/libevdev-tweak-device`
+- `/usr/bin/libinput`
+- `/usr/bin/llvm-spirv`
 - `/usr/bin/look`
 - `/usr/bin/lsclocks`
 - `/usr/bin/lscpu`
@@ -501,25 +617,83 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/lsirq`
 - `/usr/bin/lslocks`
 - `/usr/bin/lsns`
+- `/usr/bin/lua`
+- `/usr/bin/luac`
 - `/usr/bin/mcookie`
+- `/usr/bin/mouse-dpi-tool`
 - `/usr/bin/namei`
+- `/usr/bin/nettle-hash`
+- `/usr/bin/nettle-lfib-stream`
+- `/usr/bin/nettle-pbkdf2`
+- `/usr/bin/niri`
+- `/usr/bin/niri-session`
+- `/usr/bin/nvptx-arch`
+- `/usr/bin/offload-arch`
+- `/usr/bin/pango-list`
+- `/usr/bin/pango-segmentation`
+- `/usr/bin/pango-view`
 - `/usr/bin/pcre2grep`
 - `/usr/bin/pcre2test`
+- `/usr/bin/pipewire`
+- `/usr/bin/pkcs1-conv`
 - `/usr/bin/prlimit`
+- `/usr/bin/pw-cli`
+- `/usr/bin/pw-config`
+- `/usr/bin/pw-container`
+- `/usr/bin/pw-dot`
+- `/usr/bin/pw-dump`
+- `/usr/bin/pw-link`
+- `/usr/bin/pw-loopback`
+- `/usr/bin/pw-metadata`
+- `/usr/bin/pw-mididump`
+- `/usr/bin/pw-mon`
+- `/usr/bin/pw-profiler`
+- `/usr/bin/pw-reserve`
+- `/usr/bin/ravios-session`
+- `/usr/bin/ravios-session.before-foot`
 - `/usr/bin/renice`
 - `/usr/bin/rev`
+- `/usr/bin/rsvg-convert`
 - `/usr/bin/runc`
+- `/usr/bin/scan-build-py`
 - `/usr/bin/scmp_sys_resolver`
 - `/usr/bin/script`
 - `/usr/bin/scriptlive`
 - `/usr/bin/scriptreplay`
+- `/usr/bin/seatd`
+- `/usr/bin/seatd-launch`
 - `/usr/bin/setarch`
 - `/usr/bin/setpgid`
 - `/usr/bin/setsid`
+- `/usr/bin/sexp-conv`
+- `/usr/bin/spa-acp-tool`
+- `/usr/bin/spa-inspect`
+- `/usr/bin/spa-json-dump`
+- `/usr/bin/spa-monitor`
+- `/usr/bin/spirv-as`
+- `/usr/bin/spirv-cfg`
+- `/usr/bin/spirv-diff`
+- `/usr/bin/spirv-dis`
+- `/usr/bin/spirv-lesspipe.sh`
+- `/usr/bin/spirv-link`
+- `/usr/bin/spirv-lint`
+- `/usr/bin/spirv-objdump`
+- `/usr/bin/spirv-opt`
+- `/usr/bin/spirv-reduce`
+- `/usr/bin/spirv-val`
+- `/usr/bin/touchpad-edge-detector`
 - `/usr/bin/udevadm`
 - `/usr/bin/uuidgen`
 - `/usr/bin/uuidparse`
+- `/usr/bin/wayland-scanner`
+- `/usr/bin/wcurl`
 - `/usr/bin/whereis`
+- `/usr/bin/wireplumber`
+- `/usr/bin/wpctl`
+- `/usr/bin/wpexec`
+- `/usr/bin/xb-tool`
+- `/usr/bin/xmlcatalog`
+- `/usr/bin/xmllint`
 - `/usr/sbin/acpid`
 - `/usr/sbin/connmand`
 - `/usr/sbin/connmand-wait-online`
@@ -527,6 +701,7 @@ Regular executable files found in the standard command directories.
 - `/usr/sbin/iptables-apply`
 - `/usr/sbin/kacpimon`
 - `/usr/sbin/ldattach`
+- `/usr/sbin/mount.fuse3`
 - `/usr/sbin/ravios-docker-data`
 - `/usr/sbin/readprofile`
 - `/usr/sbin/rtcwake`
@@ -555,6 +730,9 @@ Installed symbolic links in the standard command directories that do not point t
 | iptables-xml | `/usr/bin/iptables-xml` |
 | linux32 | `/usr/bin/linux32` |
 | linux64 | `/usr/bin/linux64` |
+| pipewire-aes67 | `/usr/bin/pipewire-aes67` |
+| pipewire-avb | `/usr/bin/pipewire-avb` |
+| pipewire-pulse | `/usr/bin/pipewire-pulse` |
 | scp | `/usr/bin/scp` |
 | ssh | `/usr/bin/ssh` |
 | uname26 | `/usr/bin/uname26` |
@@ -725,6 +903,7 @@ CONFIG_DRM_TTM=y
 CONFIG_DRM_TTM_HELPER=y
 CONFIG_DRM_VIRTIO_GPU=y
 CONFIG_DRM_VIRTIO_GPU_KMS=y
+CONFIG_DRM_VMWGFX=m
 CONFIG_FB=y
 CONFIG_FB_CFB_COPYAREA=y
 CONFIG_FB_CFB_FILLRECT=y
@@ -1560,6 +1739,7 @@ CONFIG_LOCK_SPIN_ON_OWNER=y
 CONFIG_LOCKDEP_SUPPORT=y
 CONFIG_LTO_NONE=y
 CONFIG_MAILBOX=y
+CONFIG_MAPPING_DIRTY_HELPERS=y
 CONFIG_MEMBARRIER=y
 CONFIG_MEMCG=y
 CONFIG_MEMFD_CREATE=y
@@ -2030,7 +2210,7 @@ image docker-data.ext4 {
         label = "revayat"
     }
 
-    size = 3838M
+    size = 2814M
 }
 
 image disk.img {
@@ -2039,7 +2219,7 @@ image disk.img {
         align = "1M"
     }
 
-    size = 5G
+    size = 6G
 
     partition efi {
         image = "efi-part.vfat"
@@ -2049,7 +2229,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = e555cec8-8f9f-468b-a341-e3d84cb249a8
+        partition-uuid = b04fa29f-139c-42d1-b458-e8cb5d7e6c02
         image = "rootfs.ext2"
     }
 

@@ -1,0 +1,16 @@
+config BR2_PACKAGE_RAVIOS_GNOME_DESKTOP
+    bool "gnome-desktop"
+    depends on BR2_USE_MMU
+    depends on BR2_USE_WCHAR
+    depends on BR2_TOOLCHAIN_HAS_THREADS
+    depends on BR2_PACKAGE_LIBGTK4
+    depends on BR2_PACKAGE_LIBGLIB2
+    depends on BR2_PACKAGE_GDK_PIXBUF
+    depends on BR2_PACKAGE_GSETTINGS_DESKTOP_SCHEMAS
+    depends on BR2_PACKAGE_FONTCONFIG
+    depends on BR2_PACKAGE_XKEYBOARD_CONFIG
+    depends on BR2_PACKAGE_EUDEV
+    depends on BR2_PACKAGE_LIBSECCOMP
+    depends on BR2_PACKAGE_RAVIOS_ISO_CODES
+    help
+      GNOME Desktop support library for Wayland desktop environments.

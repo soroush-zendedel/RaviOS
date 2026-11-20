@@ -1,0 +1,38 @@
+#!/bin/sh
+
+DAEMON="ravios-session"
+PIDFILE="/var/run/$DAEMON.pid"
+
+start() {
+    printf "Starting $DAEMON: "
+    if [ "$(tty)" = "/dev/tty1" ] || [ -z "$SSH_CONNECTION" ]; then
+        start-stop-daemon -S -b -m -p "$PIDFILE" -x /usr/bin/ravios-session
+        echo "OK"
+    else
+        echo "skipped (not on console)"
+    fi
+}
+
+stop() {
+    printf "Stopping $DAEMON: "
+    start-stop-daemon -K -p "$PIDFILE"
+    echo "OK"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+case "$1" in
+    start|stop|restart)
+        "$1"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

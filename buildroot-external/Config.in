@@ -2,3 +2,12 @@ config BR2_RAVIOS_KERNEL_HEADERS_7_1
     bool
     default y if BR2_LINUX_KERNEL_CUSTOM_VERSION && BR2_KERNEL_HEADERS_AS_KERNEL
     select BR2_TOOLCHAIN_HEADERS_AT_LEAST_7_1
+
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-libdisplay-info-03/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/niri/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-gnome-desktop/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-appstream/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-iso-codes/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-xdg-desktop-portal/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-xdg-desktop-portal-gnome/Config.in"
+source "$BR2_EXTERNAL_RAVIOS_PATH/package/ravios-session/Config.in"

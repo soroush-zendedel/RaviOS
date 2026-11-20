@@ -1,0 +1,6 @@
+--- a/data/meson.build
++++ b/data/meson.build
+@@ -20,0 +21 @@
++if not meson.is_cross_build()
+@@ -42,0 +43 @@
++endif

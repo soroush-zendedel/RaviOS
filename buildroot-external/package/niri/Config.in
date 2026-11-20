@@ -1,0 +1,29 @@
+config BR2_PACKAGE_RAVIOS_NIRI
+    bool "Niri Wayland compositor"
+    depends on BR2_x86_64
+    depends on BR2_USE_WCHAR
+    depends on BR2_TOOLCHAIN_HAS_THREADS
+    depends on BR2_USE_MMU
+    depends on BR2_INSTALL_LIBSTDCPP
+    depends on BR2_TOOLCHAIN_HAS_SYNC_4
+    depends on BR2_TOOLCHAIN_GCC_AT_LEAST_4_9
+    depends on BR2_PACKAGE_DBUS
+    depends on BR2_PACKAGE_PIPEWIRE
+    depends on BR2_PACKAGE_LIBDRM
+    depends on BR2_PACKAGE_LIBINPUT
+    depends on BR2_PACKAGE_LIBXKBCOMMON
+    depends on BR2_PACKAGE_MESA3D
+    depends on BR2_PACKAGE_SEATD
+    depends on BR2_PACKAGE_WAYLAND
+    depends on BR2_PACKAGE_WAYLAND_PROTOCOLS
+    select BR2_PACKAGE_PANGO
+    select BR2_PACKAGE_RAVIOS_LIBDISPLAY_INFO_03
+    help
+      Niri scrollable-tiling Wayland compositor.
+      DRM/KMS, EGL, GBM, libinput, libseat, OpenGL,
+      D-Bus and PipeWire screencasting support.
+      Systemd integration is disabled.
+
+config BR2_PACKAGE_NIRI
+    bool
+    default y if BR2_PACKAGE_RAVIOS_NIRI

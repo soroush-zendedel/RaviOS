@@ -1,10 +1,13 @@
-[CmdletBinding(SupportsShouldProcess)]
+﻿[CmdletBinding(SupportsShouldProcess)]
 param(
     [ValidateSet("None", "Create")]
     [string]$DockerData = "Create",
 
     [string]$DiskSize = "16G",
-    [string]$OutputPath = ""
+    [string]$OutputPath = "",
+
+    [ValidateSet("VirtualBox", "VMware")]
+    [string]$Target = "VirtualBox"
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,7 +31,18 @@ $RawStageHostPath = Join-Path $ArtifactsDir $RawStageName
 $RawStageContainerPath = "/workspace/artifacts/$RawStageName"
 
 $TempVdiPath = Join-Path $ArtifactsDir ".RaviOS-Dev-$BuildId.pending.vdi"
+$TempVmdkPath = Join-Path $ArtifactsDir ".RaviOS-Dev-$BuildId.pending.vmdk"
+$VMwareVmdkPath = Join-Path $ArtifactsDir "RaviOS-Dev-VMware-$BuildId.vmdk"
+$VMwareVmxPath = Join-Path $ArtifactsDir "RaviOS-Dev-VMware-$BuildId.vmx"
 $RawTempPath = $null
+
+$VMwareExe = Join-Path $env:ProgramFiles "VMware\VMware Workstation\vmware.exe"
+if (-not (Test-Path -LiteralPath $VMwareExe -PathType Leaf)) {
+    $VMwareCommand = Get-Command vmware.exe -ErrorAction SilentlyContinue
+    if ($VMwareCommand) {
+        $VMwareExe = $VMwareCommand.Source
+    }
+}
 
 $LogDirectory = Join-Path $ArtifactsDir "logs"
 $LogPath = Join-Path $LogDirectory "build-$BuildId.log"
@@ -117,7 +131,11 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 if (-not (Get-Command VBoxManage -ErrorAction SilentlyContinue)) {
-    throw "VBoxManage was not found in PATH."
+    throw "VBoxManage was not found in PATH. It is required to convert the RAW image."
+}
+
+if ($Target -eq "VMware" -and -not (Test-Path -LiteralPath $VMwareExe -PathType Leaf)) {
+    throw "VMware Workstation executable was not found. Expected: $VMwareExe"
 }
 
 if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container)) {
@@ -134,24 +152,28 @@ if ($LASTEXITCODE -ne 0 -or "$ContainerRunning".Trim() -ne "true") {
 # Detect existing VM
 # ------------------------------------------------------------
 
-$RegisteredVMs = & VBoxManage list vms
+$ExistingVM = $false
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not retrieve VirtualBox VM list."
-}
+if ($Target -eq "VirtualBox") {
+    $RegisteredVMs = & VBoxManage list vms
 
-$ExistingVM = [bool](
-    $RegisteredVMs | Where-Object {
-        $_ -match '^\s*"RaviOS-Dev"\s+\{'
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not retrieve VirtualBox VM list."
     }
-)
+
+    $ExistingVM = [bool](
+        $RegisteredVMs | Where-Object {
+            $_ -match '^\s*"RaviOS-Dev"\s+\{'
+        }
+    )
+}
 
 $ReplaceVM = $false
 
 if ($WhatIfPreference) {
     $PSCmdlet.ShouldProcess(
         $VmName,
-        "Build image, create VDI, configure and start VirtualBox VM"
+        "Build image, export disk, configure and start $Target VM"
     ) | Out-Null
     return
 }
@@ -166,8 +188,11 @@ if ($ExistingVM) {
 $ActionDescription = if ($ExistingVM -and -not $ReplaceVM) {
     "Build and export versioned images without modifying the existing VM"
 }
+elseif ($Target -eq "VMware") {
+    "Build RaviOS, create VMDK and VMX, configure and start VMware Workstation VM"
+}
 else {
-    "Build RaviOS, create VDI, configure and start the VM"
+    "Build RaviOS, create VDI, configure and start VirtualBox VM"
 }
 
 if (-not $PSCmdlet.ShouldProcess($VmName, $ActionDescription)) {
@@ -224,6 +249,7 @@ catch {
 
 Write-Host ""
 Write-Host "========== RaviOS Build =========="
+Write-Host "Target:          $Target"
 Write-Host "Docker Data:     $DockerData"
 if ($DockerData -eq "Create") {
     Write-Host "Disk size:       $DiskSize"
@@ -232,8 +258,13 @@ else {
     Write-Host "Disk size:       Automatic"
 }
 Write-Host "RAW output:      $RawFinalPath"
-Write-Host "SSH host port:   666"
-Write-Host "SSH guest port:  666"
+if ($Target -eq "VirtualBox") {
+    Write-Host "SSH host port:   666"
+    Write-Host "SSH guest port:  666"
+}
+else {
+    Write-Host "VMware network:  NAT (DHCP)"
+}
 Write-Host "Existing VM:    $ExistingVM"
 Write-Host "Replace VM:     $ReplaceVM"
 Write-Host "=================================="
@@ -353,41 +384,44 @@ try {
         throw "Temporary RAW image size verification failed."
     }
 
-    # --------------------------------------------------------
-    # Convert temporary RAW to temporary VDI
-    # --------------------------------------------------------
+    if ($Target -eq "VirtualBox") {
+        # --------------------------------------------------------
+        # Convert temporary RAW to temporary VDI
+        # --------------------------------------------------------
 
-    Write-Host ""
-    Write-Host "Converting RAW to dynamically allocated VDI..."
+        Write-Host ""
+        Write-Host "Converting RAW to dynamically allocated VDI..."
 
-    Invoke-Checked VBoxManage @(
-        "convertfromraw",
-        $RawTempPath,
-        $TempVdiPath,
-        "--format=VDI",
-        "--variant=Standard"
-    ) "RAW to VDI conversion failed."
+        Invoke-Checked VBoxManage @(
+            "convertfromraw",
+            $RawTempPath,
+            $TempVdiPath,
+            "--format=VDI",
+            "--variant=Standard"
+        ) "RAW to VDI conversion failed."
 
-    if (-not (Test-Path -LiteralPath $TempVdiPath -PathType Leaf)) {
-        throw "VDI file was not created."
-    }
+        if (-not (Test-Path -LiteralPath $TempVdiPath -PathType Leaf)) {
+            throw "VDI file was not created."
+        }
 
-    if ((Get-Item -LiteralPath $TempVdiPath).Length -lt 1) {
-        throw "VDI file is empty."
-    }
+        if ((Get-Item -LiteralPath $TempVdiPath).Length -lt 1) {
+            throw "VDI file is empty."
+        }
 
-    # --------------------------------------------------------
-    # Select a unique final VDI path
-    # --------------------------------------------------------
+        # --------------------------------------------------------
+        # Select a unique final VDI path
+        # --------------------------------------------------------
 
-    $VdiFinalPath = Join-Path $ArtifactsDir "RaviOS-Dev.vdi"
+        $VdiFinalPath = Join-Path $ArtifactsDir "RaviOS-Dev.vdi"
 
-    if (Test-Path -LiteralPath $VdiFinalPath) {
-        $VdiFinalPath = Get-VersionedPath $VdiFinalPath $BuildId
-    }
+        if (Test-Path -LiteralPath $VdiFinalPath) {
+            $VdiFinalPath = Get-VersionedPath $VdiFinalPath $BuildId
+        }
 
-    if (Test-Path -LiteralPath $VdiFinalPath) {
-        throw "VDI destination already exists; refusing to overwrite: $VdiFinalPath"
+        if (Test-Path -LiteralPath $VdiFinalPath) {
+            throw "VDI destination already exists; refusing to overwrite: $VdiFinalPath"
+        }
+
     }
 
     # --------------------------------------------------------
@@ -408,25 +442,28 @@ try {
 
     Write-Host "RAW image verified: $RawFinalPath"
 
-    # --------------------------------------------------------
-    # Finalize and verify VDI
-    # --------------------------------------------------------
+    if ($Target -eq "VirtualBox") {
+        # --------------------------------------------------------
+        # Finalize and verify VDI
+        # --------------------------------------------------------
 
-    Move-Item -LiteralPath $TempVdiPath -Destination $VdiFinalPath
+        Move-Item -LiteralPath $TempVdiPath -Destination $VdiFinalPath
 
-    if (-not (Test-Path -LiteralPath $VdiFinalPath -PathType Leaf)) {
-        throw "Final VDI file was not created."
+        if (-not (Test-Path -LiteralPath $VdiFinalPath -PathType Leaf)) {
+            throw "Final VDI file was not created."
+        }
+
+        if ((Get-Item -LiteralPath $VdiFinalPath).Length -lt 1) {
+            throw "Final VDI file is empty."
+        }
+
+        Invoke-Checked VBoxManage @(
+            "showmediuminfo", "disk", $VdiFinalPath
+        ) "Final VDI verification failed."
+
+        Write-Host "VDI verified: $VdiFinalPath"
+
     }
-
-    if ((Get-Item -LiteralPath $VdiFinalPath).Length -lt 1) {
-        throw "Final VDI file is empty."
-    }
-
-    Invoke-Checked VBoxManage @(
-        "showmediuminfo", "disk", $VdiFinalPath
-    ) "Final VDI verification failed."
-
-    Write-Host "VDI verified: $VdiFinalPath"
 
     # --------------------------------------------------------
     # Remove Buildroot intermediate image
@@ -435,6 +472,95 @@ try {
     Invoke-Checked docker @(
         "exec", $BuildContainer, "rm", "-f", $SourceContainerPath
     ) "Images were exported, but Buildroot intermediate image could not be removed."
+
+    # --------------------------------------------------------
+    # VMware export and launch
+    # --------------------------------------------------------
+
+    if ($Target -eq "VMware") {
+        Write-Host ""
+        Write-Host "Converting RAW image to VMware VMDK..."
+
+        Invoke-Checked VBoxManage @(
+            "convertfromraw",
+            $RawFinalPath,
+            $TempVmdkPath,
+            "--format=VMDK",
+            "--variant=Standard"
+        ) "RAW to VMDK conversion failed."
+
+        if (-not (Test-Path -LiteralPath $TempVmdkPath -PathType Leaf)) {
+            throw "VMDK file was not created."
+        }
+        if ((Get-Item -LiteralPath $TempVmdkPath).Length -lt 1) {
+            throw "VMDK file is empty."
+        }
+        if ((Test-Path -LiteralPath $VMwareVmdkPath) -or (Test-Path -LiteralPath $VMwareVmxPath)) {
+            throw "VMware output destination already exists; refusing to overwrite existing files."
+        }
+
+        Move-Item -LiteralPath $TempVmdkPath -Destination $VMwareVmdkPath
+        $VmdkFileName = [System.IO.Path]::GetFileName($VMwareVmdkPath)
+
+        $VmxContent = @"
+.encoding = "UTF-8"
+config.version = "8"
+displayName = "RaviOS-Dev"
+guestOS = "otherlinux-64"
+virtualHW.version = "20"
+
+memsize = "2048"
+numvcpus = "2"
+cpuid.coresPerSocket = "2"
+firmware = "efi"
+uefi.secureBoot.enabled = "FALSE"
+
+svga.present = "TRUE"
+svga.vramSize = "134217728"
+mks.enable3d = "TRUE"
+
+sata0.present = "TRUE"
+sata0:0.present = "TRUE"
+sata0:0.fileName = "$VmdkFileName"
+sata0:0.deviceType = "disk"
+
+ethernet0.present = "TRUE"
+ethernet0.connectionType = "nat"
+ethernet0.addressType = "generated"
+ethernet0.virtualDev = "e1000"
+ethernet0.startConnected = "TRUE"
+ethernet0.wakeOnPcktRcv = "FALSE"
+
+usb.present = "TRUE"
+sound.present = "FALSE"
+"@
+
+        Set-Content -LiteralPath $VMwareVmxPath -Value $VmxContent -Encoding ASCII
+        if (-not (Test-Path -LiteralPath $VMwareVmxPath -PathType Leaf) -or
+            (Get-Item -LiteralPath $VMwareVmxPath).Length -lt 1) {
+            throw "VMX configuration was not created or is empty."
+        }
+
+        Write-Host "VMware VM files are versioned; existing VMware VMs are left untouched."
+        Write-Host "VMware VMDK: $VMwareVmdkPath"
+        Write-Host "VMware VMX:  $VMwareVmxPath"
+        Write-Host "Network:     NAT / Intel E1000 (enabled)"
+
+        Invoke-SystemInventory
+
+        Write-Host "Starting RaviOS in VMware Workstation..."
+        Invoke-Checked $VMwareExe @("-x", $VMwareVmxPath) `
+            "Could not start RaviOS in VMware Workstation."
+
+        Write-Host ""
+        Write-Host "========== RaviOS VMware Build Completed =========="
+        Write-Host "RAW:  $RawFinalPath"
+        Write-Host "VMDK: $VMwareVmdkPath"
+        Write-Host "VMX:  $VMwareVmxPath"
+        Write-Host "===================================================="
+        return
+    }
+
     # Replace old VM, only after successful image preparation
     # --------------------------------------------------------
 
@@ -602,5 +728,9 @@ finally {
 
     if (Test-Path -LiteralPath $TempVdiPath) {
         Remove-Item -LiteralPath $TempVdiPath -Force
+    }
+
+    if (Test-Path -LiteralPath $TempVmdkPath) {
+        Remove-Item -LiteralPath $TempVmdkPath -Force
     }
 }

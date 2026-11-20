@@ -1,0 +1,10 @@
+config BR2_PACKAGE_RAVIOS_SESSION
+    bool "RaviOS graphical session launcher"
+    depends on BR2_PACKAGE_RAVIOS_NIRI
+    depends on BR2_PACKAGE_DBUS
+    depends on BR2_PACKAGE_PIPEWIRE
+    depends on BR2_PACKAGE_WIREPLUMBER
+    depends on BR2_PACKAGE_SEATD
+    help
+      SysV-compatible graphical session launcher for Niri.
+      Starts a private D-Bus session, PipeWire and WirePlumber.
