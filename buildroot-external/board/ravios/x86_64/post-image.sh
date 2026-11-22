@@ -127,5 +127,21 @@ support/scripts/genimage.sh \
 
 echo "===== RaviOS UEFI image generation completed ====="
 
+# Punch zero holes so disk.img stays sparse on the build filesystem.
+# Docker Data partition is mostly empty; this avoids a full 8G/16G allocation.
+if command -v fallocate >/dev/null 2>&1; then
+    echo "===== Sparse-optimizing disk.img (fallocate -d) ====="
+    fallocate -d "$BINARIES_DIR/disk.img" || true
+elif command -v truncate >/dev/null 2>&1; then
+    # Fallback: rewrite sparsely via cp if possible
+    if cp --sparse=always "$BINARIES_DIR/disk.img" "$BINARIES_DIR/disk.img.sparse" 2>/dev/null; then
+        mv -f "$BINARIES_DIR/disk.img.sparse" "$BINARIES_DIR/disk.img"
+    fi
+fi
+
 IMAGE_SIZE_BYTES="$(wc -c < "$BINARIES_DIR/disk.img")"
-echo "Final image size: $IMAGE_SIZE_BYTES bytes"
+IMAGE_BLOCKS_APPARENT="$(du -B1 "$BINARIES_DIR/disk.img" 2>/dev/null | awk '{print $1}')"
+echo "Final image logical size:  $IMAGE_SIZE_BYTES bytes"
+if [ -n "$IMAGE_BLOCKS_APPARENT" ]; then
+    echo "Final image on-disk size:  $IMAGE_BLOCKS_APPARENT bytes (sparse)"
+fi

@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV HOME=/root
@@ -55,3 +55,10 @@ WORKDIR /workspace
 USER root
 
 CMD ["/bin/bash"]
+
+
+# Keep the Buildroot initializer inside the development image.
+# Buildroot source itself is NOT copied into the image or mounted from Windows;
+# it is initialized directly in the persistent Docker named volume.
+COPY docker/development/initialize-buildroot.sh /usr/local/bin/ravios-initialize-buildroot
+RUN chmod 0755 /usr/local/bin/ravios-initialize-buildroot

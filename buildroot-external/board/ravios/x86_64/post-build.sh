@@ -2,16 +2,27 @@
 
 set -e
 
-BOARD_DIR="$(dirname "$0")"
+BOARD_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
-cp -f "$BOARD_DIR/grub-bios.cfg" \
-    "$TARGET_DIR/boot/grub/grub.cfg"
+# Embed the prebuilt Chromium image from the project artifacts directory.
+PROJECT_ROOT="$(CDPATH= cd -- "$BOARD_DIR/../../../.." && pwd)"
+CHROMIUM_IMAGE_TAR="$PROJECT_ROOT/artifacts/ravios-chromium/image/ravios-chromium.tar"
+CHROMIUM_TARGET_DIR="$TARGET_DIR/usr/share/ravios/docker-images"
+CHROMIUM_TARGET_TAR="$CHROMIUM_TARGET_DIR/ravios-chromium.tar"
 
-cp -f "$TARGET_DIR/lib/grub/i386-pc/boot.img" \
-    "$BINARIES_DIR/boot.img"
+if [ ! -s "$CHROMIUM_IMAGE_TAR" ]; then
+    echo "ERROR: Chromium Docker image artifact is missing or empty: $CHROMIUM_IMAGE_TAR" >&2
+    echo "Run docker/chromium/prepare-image.ps1 before building RaviOS." >&2
+    exit 1
+fi
+
+mkdir -p "$CHROMIUM_TARGET_DIR"
+install -m 0644 "$CHROMIUM_IMAGE_TAR" "$CHROMIUM_TARGET_TAR"
+echo "Embedded Chromium image: $CHROMIUM_IMAGE_TAR -> $CHROMIUM_TARGET_TAR"
 
 chmod 0755 "$TARGET_DIR/etc/init.d/S50docker-data"
 chmod 0755 "$TARGET_DIR/etc/init.d/S60dockerd"
+chmod 0755 "$TARGET_DIR/etc/init.d/S70ravios-chromium-image"
 chmod 0755 "$TARGET_DIR/usr/sbin/ravios-docker-data"
 chmod 0755 "$TARGET_DIR/usr/bin/ravios-session"
 chmod 0755 "$TARGET_DIR/etc/ravios/session.d/"*.sh 2>/dev/null || true

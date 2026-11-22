@@ -1,0 +1,78 @@
+#!/bin/sh
+# Load ravios-chromium image into Docker during boot (before desktop).
+# First boot may take a while; later boots are a no-op if the image exists.
+
+NAME="ravios-chromium-image"
+IMAGE_NAME="ravios-chromium:latest"
+IMAGE_TAR="/usr/share/ravios/docker-images/ravios-chromium.tar"
+MARKER="/var/lib/ravios/chromium-image-ready"
+
+wait_for_docker() {
+    i=0
+    while [ "$i" -lt 60 ]; do
+        if docker info >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+start() {
+    printf "Starting $NAME: "
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "SKIP (no docker)"
+        return 0
+    fi
+
+    if ! wait_for_docker; then
+        echo "FAIL (dockerd not ready)"
+        return 1
+    fi
+
+    if docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        mkdir -p "$(dirname "$MARKER")"
+        touch "$MARKER"
+        echo "OK (already loaded)"
+        return 0
+    fi
+
+    if [ ! -f "$IMAGE_TAR" ]; then
+        echo "SKIP (no tar at $IMAGE_TAR)"
+        return 0
+    fi
+
+    echo "loading $IMAGE_TAR ..."
+    if docker load -i "$IMAGE_TAR"; then
+        mkdir -p "$(dirname "$MARKER")"
+        touch "$MARKER"
+        echo "OK (loaded)"
+        return 0
+    fi
+
+    echo "FAIL (docker load)"
+    return 1
+}
+
+stop() {
+    printf "Stopping $NAME: "
+    echo "OK"
+}
+
+restart() {
+    start
+}
+
+case "$1" in
+    start|stop|restart)
+        "$1"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

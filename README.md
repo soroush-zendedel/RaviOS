@@ -10,7 +10,7 @@ The long-term goal is to combine a minimal Linux system with Docker Engine, SSH 
 
 RaviOS is built using Buildroot and maintained through a project-specific Buildroot External Tree.
 
-> **Project status:** Early development. The initial x86_64 system boots successfully in VirtualBox using UEFI, and SSH access is operational. Docker Engine is integrated and has successfully pulled and run test containers. Docker Data supports both internal and external storage, automatic discovery, persistent selection, and switching between storage devices. Both image build modes—with and without an internal Docker Data partition—have been tested. BIOS compatibility and broader physical hardware validation remain ongoing.
+> **Project status:** Experimental development. The x86_64 system boots in UEFI virtual machines, SSH and Docker Engine are integrated, and Docker Data supports internal and external storage. A native Niri/Wayland desktop with Foot and a Docker-hosted Chromium browser has been brought up; the current desktop screenshot is documented in [the native desktop and Chromium milestone](docs/milestones/native-desktop-browser.md). Clean-build, repeated-boot, browser security, GPU, BIOS, and broader physical hardware validation remain ongoing.
 
 ## Project goals
 
@@ -69,6 +69,11 @@ The following table distinguishes implemented components from features that stil
 | External Docker Data discovery and reuse | Tested |
 | Persistent explicit storage selection | Tested |
 | Switching between internal and external Docker Data | Tested |
+| Native Niri Wayland compositor | Integrated; first desktop session captured |
+| Foot terminal in native desktop session | Integrated; launch captured |
+| Chromium browser in Docker container | Integrated; launch captured |
+| Offline Chromium image packaging | Implemented; clean-build/reboot validation pending |
+| Automatic Chromium startup with desktop session | Implemented; reboot validation pending |
 | Local web dashboard | Planned |
 | Application Manager | Planned |
 
@@ -90,7 +95,12 @@ The following table distinguishes implemented components from features that stil
 - Docker Data mount point: `/var/lib/docker`
 - Image generation: Genimage `20`
 - Development environment: Docker Desktop
-- Current test environment: VirtualBox
+- Current test environment: VMware (native desktop milestone) and VirtualBox (earlier system/storage tests)
+- Native desktop: Niri / Wayland
+- Terminal: Foot (native host application)
+- Browser: Chromium in a Docker container, using a prebuilt offline image
+
+The native desktop and browser are experimental. A captured desktop session confirms that Foot and Chromium were visible together, but does not replace clean-build, reboot, GPU, security, and hardware compatibility testing. See [Native Desktop and Chromium Update](docs/milestones/native-desktop-browser.md).
 
 The current system is intentionally minimal. Its initial implementation focuses on a reliable boot process, basic networking, root access, remote administration, and a working Docker runtime.
 
@@ -255,6 +265,8 @@ To build an image without an internal Docker Data partition:
 In `None` mode, the image size is calculated automatically from the required partitions. No additional disk capacity is reserved for Docker Data.
 
 Each successful image build also generates a system inventory report at `docs/system-inventory.md`, covering the build configuration, installed system contents, kernel options, and disk image layout. See [System Inventory](docs/development/system-inventory.md) for details.
+
+Build outputs are kept under the project-local `artifacts/` directory. VirtualBox files are stored in `artifacts/VirtualMachines/RaviOS-Dev/`, while VMware files are stored in `artifacts/VMware/RaviOS-Dev/`. The intermediate RAW image is created directly in `artifacts/` by default and removed after a successful VM build. If `-OutputPath` is supplied with a relative path, it is resolved from the project root; an absolute path is used as provided.
 
 For additional information about the development environment, dependencies, and manual package downloads, see:
 

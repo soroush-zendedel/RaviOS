@@ -1,4 +1,4 @@
-﻿[CmdletBinding(SupportsShouldProcess)]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [ValidateSet("None", "Create")]
     [string]$DockerData = "Create",
@@ -20,9 +20,20 @@ $ProjectRoot = $PSScriptRoot
 $ArtifactsDir = Join-Path $ProjectRoot "artifacts"
 $VmName = "RaviOS-Dev"
 $VmBaseFolder = Join-Path $ArtifactsDir "VirtualMachines"
+$VmDirectory = Join-Path $VmBaseFolder $VmName
+$VMwareBaseFolder = Join-Path $ArtifactsDir "VMware"
+$VMwareVmFolder = Join-Path $VMwareBaseFolder $VmName
 
 $SourceContainerPath = "/workspace/output/images/disk.img"
 $BuildContainer = "ravios-dev"
+$BuildrootVersionFile = Join-Path $ProjectRoot "buildroot-version.txt"
+if (-not (Test-Path -LiteralPath $BuildrootVersionFile -PathType Leaf)) {
+    throw "Buildroot version file was not found: $BuildrootVersionFile"
+}
+$BuildrootVersion = (Get-Content -LiteralPath $BuildrootVersionFile -Raw).Trim()
+if ($BuildrootVersion -notmatch '^\d{4}\.\d{2}(\.\d+)?$') {
+    throw "Invalid Buildroot version in buildroot-version.txt: $BuildrootVersion"
+}
 
 $BuildId = "$(Get-Date -Format 'yyyyMMdd-HHmmss')-$PID"
 
@@ -30,10 +41,11 @@ $RawStageName = ".ravios-$BuildId.pending"
 $RawStageHostPath = Join-Path $ArtifactsDir $RawStageName
 $RawStageContainerPath = "/workspace/artifacts/$RawStageName"
 
-$TempVdiPath = Join-Path $ArtifactsDir ".RaviOS-Dev-$BuildId.pending.vdi"
-$TempVmdkPath = Join-Path $ArtifactsDir ".RaviOS-Dev-$BuildId.pending.vmdk"
-$VMwareVmdkPath = Join-Path $ArtifactsDir "RaviOS-Dev-VMware-$BuildId.vmdk"
-$VMwareVmxPath = Join-Path $ArtifactsDir "RaviOS-Dev-VMware-$BuildId.vmx"
+# Conversion staging files stay under artifacts until the VM-specific folder is ready.
+$TempVdiPath = Join-Path $VmBaseFolder ".RaviOS-Dev-$BuildId.pending.vdi"
+$TempVmdkPath = Join-Path $VMwareVmFolder ".RaviOS-Dev-$BuildId.pending.vmdk"
+$VMwareVmdkPath = Join-Path $VMwareVmFolder "RaviOS-Dev-$BuildId.vmdk"
+$VMwareVmxPath = Join-Path $VMwareVmFolder "RaviOS-Dev-$BuildId.vmx"
 $RawTempPath = $null
 
 $VMwareExe = Join-Path $env:ProgramFiles "VMware\VMware Workstation\vmware.exe"
@@ -138,14 +150,267 @@ if ($Target -eq "VMware" -and -not (Test-Path -LiteralPath $VMwareExe -PathType 
     throw "VMware Workstation executable was not found. Expected: $VMwareExe"
 }
 
+# The artifacts directory is a Compose bind mount and is also the destination
+# for generated images. Create it on clean checkouts before Compose is invoked.
 if (-not (Test-Path -LiteralPath $ArtifactsDir -PathType Container)) {
-    throw "Artifacts directory does not exist: $ArtifactsDir"
+    New-Item -ItemType Directory -Path $ArtifactsDir -Force | Out-Null
+}
+
+# ------------------------------------------------------------
+# Ensure the Buildroot container uses the current image and mounts
+# ------------------------------------------------------------
+
+$ComposeFile = Join-Path $ProjectRoot "docker-compose.yml"
+$ExternalDescriptorHostPath = Join-Path $ProjectRoot "buildroot-external\external.desc"
+$ExternalDescriptorContainerPath = "/workspace/buildroot-external/external.desc"
+$DevelopmentDockerfile = Join-Path $ProjectRoot "docker\development\Dockerfile"
+
+if (-not (Test-Path -LiteralPath $ComposeFile -PathType Leaf)) {
+    throw "Docker Compose file was not found: $ComposeFile"
+}
+
+if (-not (Test-Path -LiteralPath $ExternalDescriptorHostPath -PathType Leaf)) {
+    throw "Buildroot external tree is incomplete. Missing: $ExternalDescriptorHostPath"
+}
+
+if (-not (Test-Path -LiteralPath $DevelopmentDockerfile -PathType Leaf)) {
+    throw "Development Dockerfile was not found: $DevelopmentDockerfile"
+}
+
+$ComposeVersion = & docker compose version --short 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "Docker Compose v2 is required to create the Buildroot container with the current project mounts."
+}
+
+# Create only missing named volumes. Existing volumes (including populated
+# download/compiler caches) are never removed, cleared, or replaced.
+$RequiredVolumes = @(
+    "ravios_buildroot-src",
+    "ravios_buildroot-output",
+    "ravios_buildroot-dl",
+    "ravios_buildroot-ccache"
+)
+
+foreach ($VolumeName in $RequiredVolumes) {
+    $ExistingVolume = & docker volume ls --quiet --filter "name=^$VolumeName$"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not check Docker volume '$VolumeName'."
+    }
+
+    $MatchingVolumes = @($ExistingVolume | Where-Object { "$($_)".Trim() -eq $VolumeName })
+    if ($MatchingVolumes.Count -eq 0) {
+        Write-Host "Creating missing Docker volume: $VolumeName"
+        $CreatedVolume = & docker volume create $VolumeName
+        if ($LASTEXITCODE -ne 0 -or "$CreatedVolume".Trim() -ne $VolumeName) {
+            throw "Could not create Docker volume '$VolumeName'."
+        }
+    }
+    else {
+        Write-Host "Reusing Docker volume: $VolumeName"
+    }
+}
+
+$ComposeArguments = @(
+    "--project-directory", $ProjectRoot,
+    "-f", $ComposeFile
+)
+
+# Resolve the exact Compose-generated image name. Prefer a local image and
+# build only when it is absent or older than the development Dockerfile.
+$ComposeImages = & docker compose @ComposeArguments config --images 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not resolve the Buildroot image configured by Docker Compose."
+}
+
+$ComposeImage = @($ComposeImages | Where-Object { -not [string]::IsNullOrWhiteSpace("$_") } | Select-Object -First 1)
+if ($ComposeImage.Count -eq 0) {
+    throw "Docker Compose did not report an image for service '$BuildContainer'."
+}
+$ComposeImage = "$($ComposeImage[0])".Trim()
+
+
+
+$DockerfileWriteTime = (Get-Item -LiteralPath $DevelopmentDockerfile).LastWriteTimeUtc
+
+# Check whether the Compose image exists without using image inspect.
+# An absent image produces an empty result instead of a "No such image" error.
+$ImageListOutput = & docker image ls --quiet --no-trunc --filter "reference=$ComposeImage"
+$ImageListExitCode = $LASTEXITCODE
+
+if ($ImageListExitCode -ne 0) {
+    throw "Could not query local Docker images. Check that Docker Engine is running."
+}
+
+$ComposeImageId = @(
+    $ImageListOutput |
+    Where-Object { -not [string]::IsNullOrWhiteSpace("$_") } |
+    Select-Object -First 1
+)
+
+$ImageExists = ($ComposeImageId.Count -gt 0)
+$ComposeImageId = if ($ImageExists) { "$($ComposeImageId[0])".Trim() } else { $null }
+
+$ImageNeedsBuild = -not $ImageExists
+
+
+if ($ImageExists) {
+    $ImageCreatedText = & docker image inspect --format '{{.Created}}' $ComposeImage 2>$null
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect creation time for local image '$ComposeImage'."
+    }
+
+    try {
+        $ImageCreatedUtc = [DateTimeOffset]::Parse("$ImageCreatedText").UtcDateTime
+
+        $ImageNeedsBuild = ($DockerfileWriteTime -gt $ImageCreatedUtc.AddSeconds(2))
+    }
+    catch {
+        Write-Warning "Could not compare the local image timestamp with the Dockerfile; keeping the existing image to avoid an unnecessary network build."
+        $ImageNeedsBuild = $false
+    }
+}
+
+if ($ImageNeedsBuild) {
+    Write-Host ""
+    Write-Host "Building the Buildroot development image (Docker layer cache enabled)..."
+    # Intentionally do not pass --no-cache or --pull. Docker's normal layer
+    # cache and locally available base images remain eligible for reuse.
+    Invoke-Checked docker (@("compose") + $ComposeArguments + @("build", $BuildContainer)) `
+        "Could not build the Buildroot development image."
+    $ComposeImageId = & docker image inspect --format '{{.Id}}' $ComposeImage
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace("$ComposeImageId")) {
+        throw "The Buildroot development image was not available after the cached build."
+    }
+}
+
+
+
+# Check container existence without inspecting a potentially missing object.
+$ContainerIdOutput = & docker ps -aq --filter "name=^/$BuildContainer$"
+$ContainerQueryExitCode = $LASTEXITCODE
+
+if ($ContainerQueryExitCode -ne 0) {
+    throw "Could not query Docker containers. Check Docker Engine."
+}
+
+$ContainerId = @(
+    $ContainerIdOutput |
+    Where-Object { -not [string]::IsNullOrWhiteSpace("$_") } |
+    Select-Object -First 1
+)
+
+$ContainerExists = ($ContainerId.Count -gt 0)
+$ContainerRunning = ""
+$ContainerImageId = $null
+$ExternalMountReady = $false
+
+if ($ContainerExists) {
+    $ContainerId = "$($ContainerId[0])".Trim()
+
+    $ContainerRunning = & docker inspect --format '{{.State.Running}}' $ContainerId
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect existing container '$BuildContainer'."
+    }
+
+    $ContainerImageId = & docker inspect --format '{{.Image}}' $ContainerId
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not inspect image of container '$BuildContainer'."
+    }
+
+    if ("$ContainerRunning".Trim() -eq "true") {
+        & docker exec $ContainerId test -f $ExternalDescriptorContainerPath
+        $ExternalMountReady = ($LASTEXITCODE -eq 0)
+    }
+}
+
+$ContainerNeedsRecreate = (
+    -not $ContainerExists -or
+    "$ContainerRunning".Trim() -ne "true" -or
+    -not $ExternalMountReady -or
+    "$ContainerImageId".Trim() -ne "$ComposeImageId".Trim()
+)
+
+if ($ContainerNeedsRecreate) {
+    Write-Host ""
+    Write-Host "Creating the Buildroot container with the existing named volumes..."
+
+    # --no-build guarantees that Compose uses the image checked/built above.
+    # No -v, volume rm, prune, or cache-clearing operation is used.
+    Invoke-Checked docker (@("compose") + $ComposeArguments + @(
+        "up", "-d", "--no-build", "--force-recreate", $BuildContainer
+    )) "Could not recreate the Buildroot container with the current project mounts."
+}
+else {
+    Write-Host "Buildroot container and project mounts are already current; reusing the running container."
 }
 
 $ContainerRunning = & docker inspect --format '{{.State.Running}}' $BuildContainer
-
 if ($LASTEXITCODE -ne 0 -or "$ContainerRunning".Trim() -ne "true") {
-    throw "Buildroot container '$BuildContainer' is not running."
+    throw "Buildroot container '$BuildContainer' is not running after Docker Compose setup."
+}
+
+& docker exec $BuildContainer test -f $ExternalDescriptorContainerPath
+if ($LASTEXITCODE -ne 0) {
+    throw "The Buildroot external tree is still not mounted inside the container at /workspace/buildroot-external. Check Docker Desktop file sharing and the bind mount in docker-compose.yml."
+}
+
+# ------------------------------------------------------------
+# Initialize persistent Buildroot source and output volumes
+# ------------------------------------------------------------
+
+$BuildrootInitializerContainerPath = "/usr/local/bin/ravios-initialize-buildroot"
+& docker exec $BuildContainer test -f $BuildrootInitializerContainerPath
+if ($LASTEXITCODE -ne 0) {
+    throw "Buildroot initializer is not mounted in the container: $BuildrootInitializerContainerPath"
+}
+
+Write-Host ""
+Write-Host "Initializing or reusing persistent Buildroot source..."
+Invoke-Checked docker @(
+    "exec", $BuildContainer, "bash", $BuildrootInitializerContainerPath, $BuildrootVersion
+) "Could not initialize Buildroot source."
+
+# The output volume is initialized only once. Never overwrite an existing
+# .config on subsequent runs; users may have made deliberate configuration changes.
+& docker exec $BuildContainer test -s /workspace/output/.config
+$OutputConfigExists = ($LASTEXITCODE -eq 0)
+if (-not $OutputConfigExists) {
+    Write-Host "Buildroot output configuration not found; applying RaviOS defconfig for first initialization..."
+    Invoke-Checked docker @(
+        "exec",
+        $BuildContainer,
+        "make",
+        "-C", "/workspace/buildroot",
+        "O=/workspace/output",
+        "BR2_EXTERNAL=/workspace/buildroot-external",
+        "ravios_x86_64_defconfig"
+    ) "Could not initialize Buildroot output configuration."
+}
+else {
+    Write-Host "Existing Buildroot output configuration found; reusing it."
+}
+
+# ------------------------------------------------------------
+# Prepare offline Chromium image artifact (copied into target rootfs by post-build.sh)
+# ------------------------------------------------------------
+
+$PrepareChromiumScript = Join-Path $ProjectRoot "docker\chromium\prepare-image.ps1"
+if (Test-Path -LiteralPath $PrepareChromiumScript) {
+    Write-Host ""
+    Write-Host "Preparing offline Chromium Docker image..."
+    # Bypass local execution policy for this helper only (unsigned project script)
+    $prep = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $PrepareChromiumScript
+    ) -Wait -PassThru -NoNewWindow
+    if ($prep.ExitCode -ne 0) {
+        throw "prepare-image.ps1 failed with exit code $($prep.ExitCode)"
+    }
+}
+else {
+    throw "prepare-image.ps1 not found. Chromium image artifact cannot be prepared."
 }
 
 # ------------------------------------------------------------
@@ -206,8 +471,15 @@ if (-not $PSCmdlet.ShouldProcess($VmName, $ActionDescription)) {
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
     $RawFinalPath = Join-Path $ArtifactsDir "disk.img"
 }
-else {
+elseif ([System.IO.Path]::IsPathRooted($OutputPath)) {
     $RawFinalPath = [System.IO.Path]::GetFullPath($OutputPath)
+}
+else {
+    # Relative custom paths are always resolved from the project root,
+    # never from the caller's current working directory.
+    $RawFinalPath = [System.IO.Path]::GetFullPath(
+        (Join-Path $ProjectRoot $OutputPath)
+    )
 }
 
 if ($ExistingVM -and -not $ReplaceVM) {
@@ -226,6 +498,10 @@ $RawDestinationName = Split-Path -Leaf $RawFinalPath
 
 if ([string]::IsNullOrWhiteSpace($RawDestinationName)) {
     throw "OutputPath must specify a filename."
+}
+
+if (-not (Test-Path -LiteralPath $RawDestinationDir -PathType Container)) {
+    New-Item -ItemType Directory -Path $RawDestinationDir -Force | Out-Null
 }
 
 $RawTempPath = Join-Path $RawDestinationDir ".$RawDestinationName.$BuildId.tmp"
@@ -385,6 +661,10 @@ try {
     }
 
     if ($Target -eq "VirtualBox") {
+        if (-not (Test-Path -LiteralPath $VmBaseFolder -PathType Container)) {
+            New-Item -ItemType Directory -Path $VmBaseFolder -Force | Out-Null
+        }
+
         # --------------------------------------------------------
         # Convert temporary RAW to temporary VDI
         # --------------------------------------------------------
@@ -412,14 +692,10 @@ try {
         # Select a unique final VDI path
         # --------------------------------------------------------
 
-        $VdiFinalPath = Join-Path $ArtifactsDir "RaviOS-Dev.vdi"
+        $VdiFinalPath = Join-Path $VmDirectory "RaviOS-Dev.vdi"
 
-        if (Test-Path -LiteralPath $VdiFinalPath) {
+        if ((Test-Path -LiteralPath $VdiFinalPath) -and -not $ReplaceVM) {
             $VdiFinalPath = Get-VersionedPath $VdiFinalPath $BuildId
-        }
-
-        if (Test-Path -LiteralPath $VdiFinalPath) {
-            throw "VDI destination already exists; refusing to overwrite: $VdiFinalPath"
         }
 
     }
@@ -442,29 +718,6 @@ try {
 
     Write-Host "RAW image verified: $RawFinalPath"
 
-    if ($Target -eq "VirtualBox") {
-        # --------------------------------------------------------
-        # Finalize and verify VDI
-        # --------------------------------------------------------
-
-        Move-Item -LiteralPath $TempVdiPath -Destination $VdiFinalPath
-
-        if (-not (Test-Path -LiteralPath $VdiFinalPath -PathType Leaf)) {
-            throw "Final VDI file was not created."
-        }
-
-        if ((Get-Item -LiteralPath $VdiFinalPath).Length -lt 1) {
-            throw "Final VDI file is empty."
-        }
-
-        Invoke-Checked VBoxManage @(
-            "showmediuminfo", "disk", $VdiFinalPath
-        ) "Final VDI verification failed."
-
-        Write-Host "VDI verified: $VdiFinalPath"
-
-    }
-
     # --------------------------------------------------------
     # Remove Buildroot intermediate image
     # --------------------------------------------------------
@@ -478,6 +731,10 @@ try {
     # --------------------------------------------------------
 
     if ($Target -eq "VMware") {
+        if (-not (Test-Path -LiteralPath $VMwareVmFolder -PathType Container)) {
+            New-Item -ItemType Directory -Path $VMwareVmFolder -Force | Out-Null
+        }
+
         Write-Host ""
         Write-Host "Converting RAW image to VMware VMDK..."
 
@@ -542,6 +799,7 @@ sound.present = "FALSE"
         }
 
         Write-Host "VMware VM files are versioned; existing VMware VMs are left untouched."
+        Write-Host "VMware folder: $VMwareVmFolder"
         Write-Host "VMware VMDK: $VMwareVmdkPath"
         Write-Host "VMware VMX:  $VMwareVmxPath"
         Write-Host "Network:     NAT / Intel E1000 (enabled)"
@@ -552,9 +810,14 @@ sound.present = "FALSE"
         Invoke-Checked $VMwareExe @("-x", $VMwareVmxPath) `
             "Could not start RaviOS in VMware Workstation."
 
+        # Keep only VMware artifacts (no RAW disk.img left in artifacts)
+        if (Test-Path -LiteralPath $RawFinalPath) {
+            Write-Host "Removing intermediate RAW image (not needed for VMware target)..."
+            Remove-Item -LiteralPath $RawFinalPath -Force
+        }
+
         Write-Host ""
         Write-Host "========== RaviOS VMware Build Completed =========="
-        Write-Host "RAW:  $RawFinalPath"
         Write-Host "VMDK: $VMwareVmdkPath"
         Write-Host "VMX:  $VMwareVmxPath"
         Write-Host "===================================================="
@@ -613,8 +876,6 @@ sound.present = "FALSE"
 
         Write-Host ""
         Write-Host "========== Build Completed =========="
-        Write-Host "RAW: $RawFinalPath"
-        Write-Host "VDI: $VdiFinalPath"
         Write-Host "====================================="
 
         return
@@ -638,6 +899,33 @@ sound.present = "FALSE"
         "--ostype", "Linux_64",
         "--register"
     ) "Could not create RaviOS-Dev VM."
+
+    # VirtualBox creates the VM directory as part of createvm.
+    # Place the disk inside that directory only after it exists.
+    if (-not (Test-Path -LiteralPath $VmDirectory -PathType Container)) {
+        throw "VirtualBox VM directory was not created: $VmDirectory"
+    }
+
+    # Preserve unrelated files if an old VM directory was not fully removed.
+    if (Test-Path -LiteralPath $VdiFinalPath) {
+        $VdiFinalPath = Get-VersionedPath $VdiFinalPath $BuildId
+    }
+
+    Move-Item -LiteralPath $TempVdiPath -Destination $VdiFinalPath
+
+    if (-not (Test-Path -LiteralPath $VdiFinalPath -PathType Leaf)) {
+        throw "Final VDI file was not created."
+    }
+
+    if ((Get-Item -LiteralPath $VdiFinalPath).Length -lt 1) {
+        throw "Final VDI file is empty."
+    }
+
+    Invoke-Checked VBoxManage @(
+        "showmediuminfo", "disk", $VdiFinalPath
+    ) "Final VDI verification failed."
+
+    Write-Host "VDI verified: $VdiFinalPath"
 
     # --------------------------------------------------------
     # Configure VM hardware and network
@@ -697,9 +985,14 @@ sound.present = "FALSE"
 
     Invoke-SystemInventory
 
+    # Keep only VirtualBox artifacts (no RAW disk.img left in artifacts)
+    if (Test-Path -LiteralPath $RawFinalPath) {
+        Write-Host "Removing intermediate RAW image (not needed for VirtualBox target)..."
+        Remove-Item -LiteralPath $RawFinalPath -Force
+    }
+
     Write-Host ""
     Write-Host "========== RaviOS Build Completed =========="
-    Write-Host "RAW image: $RawFinalPath"
     Write-Host "VDI image: $VdiFinalPath"
     Write-Host "VM:        $VmName"
     Write-Host "VM folder: $VmBaseFolder\$VmName"

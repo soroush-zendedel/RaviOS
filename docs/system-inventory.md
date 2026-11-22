@@ -6,16 +6,16 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261120-093128-14624 |
-| Generated | 2026-11-20 09:33:19 +03:30 |
+| Build ID | 20261123-004627-3700 |
+| Generated | 2026-11-23 00:48:13 +03:30 |
 | Hostname | ravios |
-| Buildroot | 2026.08.1 |
+| Buildroot | 2026.08.2 |
 | Linux Kernel | 7.3.3 |
 | BusyBox | 1.38.0 |
 | Docker Engine | 28.5.2 |
 | Docker Data mode | Create |
 | Requested disk size | 6G |
-| RootFS configured size | 3072M |
+| RootFS configured size | 4096M |
 
 ## Platform Summary
 
@@ -24,11 +24,11 @@
 | Docker Engine | y |
 | Docker CLI | y |
 | Kernel User Namespaces | Not set |
-| Installed Target packages | 100 |
+| Installed Target packages | 95 |
 | BusyBox applet links | 263 |
-| Standalone executable files | 257 |
+| Standalone executable files | 237 |
 | Non-BusyBox symbolic links | 36 |
-| Active Kernel options (=y or =m) | 1333 |
+| Active Kernel options (=y or =m) | 1339 |
 
 ## Important Notes
 
@@ -46,7 +46,7 @@
 | Package | Version |
 |---|---|
 | cgroupfs-v2-mount | Unversioned |
-| containerd | 2.0.11 |
+| containerd | 2.0.14 |
 | docker-cli | 28.5.2 |
 | docker-engine | 28.5.2 |
 | runc | 1.3.6 |
@@ -73,19 +73,18 @@
 
 | Package | Version |
 |---|---|
-| expat | 2.9.0 |
+| expat | 2.10.0 |
 | gcc-final | 15.3.0 |
 | glibc | 2.44-57-g34106fee698c83eb0af71d4d0381e66b399be746 |
 | libcamera | Not available |
-| libclc | 22.1.8 |
-| libcurl | 8.22.0 |
+| libcurl | 8.23.0 |
 | libdrm | 2.4.134 |
 | libepoxy | 1.5.10 |
 | libevdev | 1.13.5 |
 | libffi | 3.8.0 |
-| libfribidi | 1.0.16 |
+| libfribidi | 1.0.18 |
 | libfuse3 | 3.18.3 |
-| libglib2 | 2.88.3 |
+| libglib2 | 2.88.4 |
 | libgtk4 | 4.21.0 |
 | libinput | 1.31.3 |
 | libnl | 3.12.0 |
@@ -101,7 +100,7 @@
 | libxml2 | 2.15.4 |
 | libxmlb | 0.3.27 |
 | libyaml | 0.2.5 |
-| libzlib | 1.3.2 |
+| libzlib | 1.4 |
 | ncurses | 6.6-20251231 |
 | pcre2 | 10.49 |
 | readline | 8.3 |
@@ -114,7 +113,6 @@
 | alsa-lib | 1.2.16.1 |
 | bluez5_utils | 5.86 |
 | cairo | 1.18.4 |
-| clang | 22.1.8 |
 | dejavu | 2.37 |
 | fcft | 3.3.2 |
 | fontconfig | 2.17.1 |
@@ -124,7 +122,7 @@
 | gmp | 6.3.0 |
 | gnutls | 3.8.13 |
 | graphene | 1.10.8 |
-| gsettings-desktop-schemas | 47.1 |
+| gsettings-desktop-schemas | 45.0 |
 | gst1-plugins-base | 1.24.13 |
 | gstreamer1 | 1.24.13 |
 | harfbuzz | 14.3.1 |
@@ -139,19 +137,16 @@
 | pango | 1.58.0 |
 | pipewire | 1.6.6 |
 | pixman | 0.46.4 |
-| ravios-appstream | 1.0.5 |
 | ravios-gnome-desktop | 51.0 |
 | ravios-iso-codes | Not available |
-| ravios-libadwaita | 1.7.6 |
 | ravios-libdisplay-info-03 | 0.3.0 |
 | ravios-session | Unversioned |
+| ravios-xdg-desktop-portal | 1.21.1 |
 | seatd | 0.9.1 |
-| spirv-llvm-translator | 22.1.3 |
-| spirv-tools | 1.4.350.0 |
 | tiff | 4.7.2 |
 | wayland | 1.24.0 |
 | wireplumber | 0.5.14 |
-| xkeyboard-config | 2.49 |
+| xkeyboard-config | 2.38 |
 
 ### Storage and System Tools
 
@@ -468,6 +463,8 @@ Regular executable files found in the standard command directories.
 - `/bin/grub-mkrelpath`
 - `/bin/grub-mkrescue`
 - `/bin/grub-mkstandalone`
+- `/bin/grub-mount`
+- `/bin/grub-protect`
 - `/bin/grub-render-label`
 - `/bin/grub-script-check`
 - `/bin/grub-syslinux2cfg`
@@ -521,9 +518,6 @@ Regular executable files found in the standard command directories.
 - `/sbin/tune2fs`
 - `/sbin/udevd`
 - `/usr/bin/acpi_listen`
-- `/usr/bin/amdgpu-arch`
-- `/usr/bin/analyze-build`
-- `/usr/bin/appstreamcli`
 - `/usr/bin/aserver`
 - `/usr/bin/bits`
 - `/usr/bin/cairo-trace`
@@ -545,7 +539,6 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/dbus-test-tool`
 - `/usr/bin/dbus-update-activation-environment`
 - `/usr/bin/dbus-uuidgen`
-- `/usr/bin/diagtool`
 - `/usr/bin/di-edid-decode`
 - `/usr/bin/docker`
 - `/usr/bin/dockerd`
@@ -601,15 +594,12 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/hb-vector`
 - `/usr/bin/hb-view`
 - `/usr/bin/hexdump`
-- `/usr/bin/hmaptool`
-- `/usr/bin/intercept-build`
 - `/usr/bin/isosize`
 - `/usr/bin/json-glib-format`
 - `/usr/bin/json-glib-validate`
 - `/usr/bin/libcamera-bug-report`
 - `/usr/bin/libevdev-tweak-device`
 - `/usr/bin/libinput`
-- `/usr/bin/llvm-spirv`
 - `/usr/bin/look`
 - `/usr/bin/lsclocks`
 - `/usr/bin/lscpu`
@@ -627,8 +617,6 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/nettle-pbkdf2`
 - `/usr/bin/niri`
 - `/usr/bin/niri-session`
-- `/usr/bin/nvptx-arch`
-- `/usr/bin/offload-arch`
 - `/usr/bin/pango-list`
 - `/usr/bin/pango-segmentation`
 - `/usr/bin/pango-view`
@@ -650,12 +638,10 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/pw-profiler`
 - `/usr/bin/pw-reserve`
 - `/usr/bin/ravios-session`
-- `/usr/bin/ravios-session.before-foot`
 - `/usr/bin/renice`
 - `/usr/bin/rev`
 - `/usr/bin/rsvg-convert`
 - `/usr/bin/runc`
-- `/usr/bin/scan-build-py`
 - `/usr/bin/scmp_sys_resolver`
 - `/usr/bin/script`
 - `/usr/bin/scriptlive`
@@ -670,17 +656,6 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/spa-inspect`
 - `/usr/bin/spa-json-dump`
 - `/usr/bin/spa-monitor`
-- `/usr/bin/spirv-as`
-- `/usr/bin/spirv-cfg`
-- `/usr/bin/spirv-diff`
-- `/usr/bin/spirv-dis`
-- `/usr/bin/spirv-lesspipe.sh`
-- `/usr/bin/spirv-link`
-- `/usr/bin/spirv-lint`
-- `/usr/bin/spirv-objdump`
-- `/usr/bin/spirv-opt`
-- `/usr/bin/spirv-reduce`
-- `/usr/bin/spirv-val`
 - `/usr/bin/touchpad-edge-detector`
 - `/usr/bin/udevadm`
 - `/usr/bin/uuidgen`
@@ -853,6 +828,7 @@ CONFIG_KEYS=y
 
 ```text
 CONFIG_EXT4_FS=y
+CONFIG_EXT4_FS_SECURITY=y
 CONFIG_EXT4_USE_FOR_EXT2=y
 CONFIG_FUSE_FS=y
 CONFIG_FUSE_IO_URING=y
@@ -903,7 +879,7 @@ CONFIG_DRM_TTM=y
 CONFIG_DRM_TTM_HELPER=y
 CONFIG_DRM_VIRTIO_GPU=y
 CONFIG_DRM_VIRTIO_GPU_KMS=y
-CONFIG_DRM_VMWGFX=m
+CONFIG_DRM_VMWGFX=y
 CONFIG_FB=y
 CONFIG_FB_CFB_COPYAREA=y
 CONFIG_FB_CFB_FILLRECT=y
@@ -1879,6 +1855,11 @@ CONFIG_RT73USB=m
 CONFIG_RTC_LIB=y
 CONFIG_RTC_MC146818_LIB=y
 CONFIG_RUNTIME_TESTING_MENU=y
+CONFIG_RUSTC_HAS_APXF=y
+CONFIG_RUSTC_HAS_FILE_AS_C_STR=y
+CONFIG_RUSTC_HAS_FILE_WITH_NUL=y
+CONFIG_RUSTC_HAS_SPAN_FILE=y
+CONFIG_RUSTC_HAS_UNNECESSARY_TRANSMUTES=y
 CONFIG_RWSEM_SPIN_ON_OWNER=y
 CONFIG_SBITMAP=y
 CONFIG_SCHED_CACHE=y
@@ -2210,7 +2191,7 @@ image docker-data.ext4 {
         label = "revayat"
     }
 
-    size = 2814M
+    size = 1790M
 }
 
 image disk.img {
@@ -2229,7 +2210,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = b04fa29f-139c-42d1-b458-e8cb5d7e6c02
+        partition-uuid = db6c6d07-8db6-437f-9171-06ef095db3f0
         image = "rootfs.ext2"
     }
 

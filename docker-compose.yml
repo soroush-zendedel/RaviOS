@@ -8,6 +8,8 @@ services:
 
     working_dir: /workspace
 
+    # Recreating this service container does not remove these named volumes.
+    # Do not use `docker compose down -v` for routine container refreshes.
     volumes:
       # Buildroot source
       - buildroot-src:/workspace/buildroot
@@ -21,8 +23,9 @@ services:
       # Compiler cache
       - buildroot-ccache:/root/.buildroot-ccache
 
-      # RaviOS external configuration
-      - ./buildroot-external:/workspace/buildroot-external
+      # RaviOS external configuration and source initializer
+      - ./buildroot-external:/workspace/buildroot-external:ro
+      - ./docker/development:/workspace/docker/development:ro
 
       # Final artifacts exported to Windows
       - ./artifacts:/workspace/artifacts
@@ -33,7 +36,17 @@ services:
     command: /bin/bash
 
 volumes:
+  # Explicit names preserve the existing volumes created by earlier runs.
+  # external:true prevents Compose from attempting to manage or recreate them.
   buildroot-src:
+    external: true
+    name: ravios_buildroot-src
   buildroot-output:
+    external: true
+    name: ravios_buildroot-output
   buildroot-dl:
+    external: true
+    name: ravios_buildroot-dl
   buildroot-ccache:
+    external: true
+    name: ravios_buildroot-ccache
