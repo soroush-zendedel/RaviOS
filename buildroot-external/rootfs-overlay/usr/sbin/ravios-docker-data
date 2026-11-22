@@ -465,6 +465,14 @@ EOF
         return 1
     }
 
+    if ! /etc/init.d/S70ollama start; then
+        echo "Warning: Docker Data changed successfully, but Ollama could not start."
+    fi
+
+    if ! /etc/init.d/S70ravios-chromium-image start; then
+        echo "Warning: Docker Data changed successfully, but Chromium image could not load."
+    fi
+
     echo "Docker Data changed successfully."
 }
 
