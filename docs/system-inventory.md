@@ -6,15 +6,15 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261123-004627-3700 |
-| Generated | 2026-11-23 00:48:13 +03:30 |
+| Build ID | 20261123-012057-3700 |
+| Generated | 2026-11-23 01:23:08 +03:30 |
 | Hostname | ravios |
 | Buildroot | 2026.08.2 |
 | Linux Kernel | 7.3.3 |
 | BusyBox | 1.38.0 |
 | Docker Engine | 28.5.2 |
 | Docker Data mode | Create |
-| Requested disk size | 6G |
+| Requested disk size | 8G |
 | RootFS configured size | 4096M |
 
 ## Platform Summary
@@ -2191,7 +2191,7 @@ image docker-data.ext4 {
         label = "revayat"
     }
 
-    size = 1790M
+    size = 3838M
 }
 
 image disk.img {
@@ -2200,7 +2200,7 @@ image disk.img {
         align = "1M"
     }
 
-    size = 6G
+    size = 8G
 
     partition efi {
         image = "efi-part.vfat"
@@ -2210,7 +2210,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = db6c6d07-8db6-437f-9171-06ef095db3f0
+        partition-uuid = 4f9a891d-61e7-456e-a14e-73801b7bb7d8
         image = "rootfs.ext2"
     }
 
