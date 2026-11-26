@@ -53,10 +53,15 @@ Thumbs.db
 *.qcow2
 *.raw
 
-/download_tmp/
+download_tmp/*
+!download_tmp/README.md
+
 
 # Local backups and temporary files
-/local/
+local/*
+!local/README.md
 
 # Generated build and VM artifacts
-/artifacts/
+**/image/*.tar
+**/models/*.tar
+**/VMware/*/
