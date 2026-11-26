@@ -43,9 +43,17 @@ start_container() {
 
     docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
+    # Ensure shared network so Chromium can reach Open WebUI by name.
+    if ! docker network inspect ravios-net >/dev/null 2>&1; then
+        docker network create ravios-net >/dev/null 2>&1 || true
+    fi
+
     # shellcheck disable=SC2086
+    # Args after the image replace CMD; keep the same flags as docker/chromium/Dockerfile
+    # and open Open WebUI automatically on the shared network.
     docker run -d --rm \
         --name "$CONTAINER_NAME" \
+        --network ravios-net \
         --security-opt seccomp=unconfined \
         --security-opt apparmor=unconfined \
         --cap-add SYS_ADMIN \
@@ -60,7 +68,26 @@ start_container() {
         -e LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
         $VOLUMES \
         --ipc=host \
-        "$IMAGE_NAME"
+        "$IMAGE_NAME" \
+        chromium \
+        --no-sandbox \
+        --test-type \
+        --ozone-platform=wayland \
+        --enable-features=VaapiVideoDecoder,VaapiVideoEncoder,VaapiIgnoreDriverChecks,CanvasOopRasterization,UseOzonePlatform,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL \
+        --ignore-gpu-blocklist \
+        --enable-gpu-rasterization \
+        --enable-zero-copy \
+        --use-gl=angle \
+        --use-angle=gl \
+        --disable-gpu-driver-bug-workarounds \
+        --disable-features=TranslateUI,MediaRouter,UseChromeOSDirectVideoDecoder \
+        --check-for-update-interval=31536000 \
+        --disable-component-update \
+        --no-first-run \
+        --no-default-browser-check \
+        --disable-sync \
+        --disable-background-networking \
+        "http://ravios-webui:8080"
 }
 
 # --- main ---

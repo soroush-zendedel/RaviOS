@@ -57,6 +57,27 @@ install -m 0644 "$MODEL_ARCHIVE" \
 echo "Offline Ollama bundle installed successfully."
 
 # ------------------------------------------------------------
+# Embed offline Open WebUI (ravios-webui) image
+# ------------------------------------------------------------
+
+echo "===== Installing offline ravios-webui image ====="
+
+WEBUI_IMAGE_TAR="$PROJECT_ROOT/artifacts/ravios-webui/image/ravios-webui-image.tar"
+WEBUI_OFFLINE_DIR="$TARGET_DIR/usr/share/ravios/offline/ravios-webui"
+
+if [ ! -s "$WEBUI_IMAGE_TAR" ]; then
+    echo "ERROR: WebUI Docker image artifact is missing or empty: $WEBUI_IMAGE_TAR" >&2
+    echo "Run docker/webui/prepare-image.ps1 before building RaviOS." >&2
+    exit 1
+fi
+
+mkdir -p "$WEBUI_OFFLINE_DIR/image"
+install -m 0644 "$WEBUI_IMAGE_TAR" \
+    "$WEBUI_OFFLINE_DIR/image/ravios-webui-image.tar"
+
+echo "Offline ravios-webui image installed successfully."
+
+# ------------------------------------------------------------
 # Set executable permissions
 # ------------------------------------------------------------
 
@@ -64,6 +85,7 @@ chmod 0755 "$TARGET_DIR/etc/init.d/S50docker-data"
 chmod 0755 "$TARGET_DIR/etc/init.d/S60dockerd"
 chmod 0755 "$TARGET_DIR/etc/init.d/S70ravios-chromium-image"
 chmod 0755 "$TARGET_DIR/etc/init.d/S70ollama"
+chmod 0755 "$TARGET_DIR/etc/init.d/S71ravios-webui"
 chmod 0755 "$TARGET_DIR/usr/sbin/ravios-docker-data"
 chmod 0755 "$TARGET_DIR/usr/bin/ravios-session"
 chmod 0755 "$TARGET_DIR/etc/ravios/session.d/"*.sh 2>/dev/null || true

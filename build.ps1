@@ -7,7 +7,11 @@ param(
     [string]$OutputPath = "",
 
     [ValidateSet("VirtualBox", "VMware")]
-    [string]$Target = "VirtualBox"
+    [string]$Target = "VirtualBox",
+
+    # Remove only per-build disposable artifacts (disk images, staging files).
+    # Does not touch Buildroot compile caches, downloads, or ccache.
+    [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
@@ -91,6 +95,100 @@ function Get-VersionedPath {
     $Extension = [System.IO.Path]::GetExtension($Path)
 
     return Join-Path $Directory "$Name-$Suffix$Extension"
+}
+
+# Remove only artifacts that every successful build.ps1 run regenerates:
+#   - Buildroot output/images/* (disk.img and related final image files)
+#   - Host staging RAW / pending VDI / pending VMDK under artifacts/
+# Does NOT remove:
+#   - Docker volumes ravios_buildroot-src / -dl / -ccache / -output (build tree)
+#   - Compiled objects under output/build, output/host, output/target, ...
+#   - Offline app images (chromium, webui, ollama-bundle)
+#   - Versioned finished VMs the user may still want
+function Remove-RaviOsEphemeralArtifacts {
+    param(
+        [string]$ContainerName = $BuildContainer,
+        [string]$ArtifactsRoot = $ArtifactsDir
+    )
+
+    Write-Host ""
+    Write-Host "Cleaning per-build disposable artifacts (compile cache kept)..."
+
+    # --- Inside the Buildroot container: final image products only ---
+    $containerRunning = $false
+    if (-not [string]::IsNullOrWhiteSpace($ContainerName)) {
+        $runningIds = @(
+            & docker ps -q --filter "name=^/$ContainerName$" 2>$null |
+            Where-Object { -not [string]::IsNullOrWhiteSpace("$_") }
+        )
+        $containerRunning = ($runningIds.Count -gt 0)
+    }
+
+    if ($containerRunning) {
+        # Only remove the final disk image that every full build regenerates.
+        # Do NOT wipe bzImage, efi-part, or rootfs.* — Buildroot incremental
+        # builds will not recreate them if package stamps are still "done".
+        Write-Host "  Container: removing previous disk.img only (keeping kernel/EFI/rootfs)"
+        & docker exec $ContainerName sh -c 'rm -f /workspace/output/images/disk.img; mkdir -p /workspace/output/images; exit 0' | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "  Could not remove container disk.img (exit $LASTEXITCODE). Continuing."
+        }
+        else {
+            Write-Host "  Container: disk.img removed (if it existed)."
+        }
+    }
+    else {
+        Write-Host "  Container '$ContainerName' is not running - skipped container image cleanup."
+    }
+
+    # --- Host artifacts: staging / intermediate only ---
+    if (-not (Test-Path -LiteralPath $ArtifactsRoot -PathType Container)) {
+        Write-Host "  Host artifacts directory missing - nothing to clean there."
+        return
+    }
+
+    $removed = 0
+    function Remove-HostMatch([string]$Directory, [string]$Filter) {
+        if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+            return
+        }
+        Get-ChildItem -LiteralPath $Directory -Filter $Filter -Force -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                try {
+                    Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop
+                    Write-Host "  Removed: $($_.FullName)"
+                    $script:removed++
+                }
+                catch {
+                    Write-Warning "  Could not remove $($_.FullName): $($_.Exception.Message)"
+                }
+            }
+    }
+
+    # Final RAW and staging under artifacts/
+    $diskImg = Join-Path $ArtifactsRoot "disk.img"
+    if (Test-Path -LiteralPath $diskImg -PathType Leaf) {
+        try {
+            Remove-Item -LiteralPath $diskImg -Force -ErrorAction Stop
+            Write-Host "  Removed: $diskImg"
+            $removed++
+        }
+        catch {
+            Write-Warning ("  Could not remove {0}: {1}" -f $diskImg, $_.Exception.Message)
+        }
+    }
+    Remove-HostMatch $ArtifactsRoot ".ravios-*.pending"
+    Remove-HostMatch $ArtifactsRoot ".*.tmp"
+
+    # Pending conversion products
+    $vmBox = Join-Path $ArtifactsRoot "VirtualMachines"
+    Remove-HostMatch $vmBox ".RaviOS-Dev-*.pending.vdi"
+
+    $vmwareDev = Join-Path $ArtifactsRoot "VMware\RaviOS-Dev"
+    Remove-HostMatch $vmwareDev ".RaviOS-Dev-*.pending.vmdk"
+
+    Write-Host "  Host intermediate files removed: $removed"
+    Write-Host "Per-build cleanup finished (Buildroot ccache/dl/output tree preserved)."
 }
 
 function Invoke-SystemInventory {
@@ -356,6 +454,16 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # ------------------------------------------------------------
+# Optional: clean only (no Buildroot make / no VM create)
+# ------------------------------------------------------------
+if ($Clean) {
+    Remove-RaviOsEphemeralArtifacts -ContainerName $BuildContainer -ArtifactsRoot $ArtifactsDir
+    Write-Host ""
+    Write-Host "Clean completed. No OS image was built."
+    exit 0
+}
+
+# ------------------------------------------------------------
 # Initialize persistent Buildroot source and output volumes
 # ------------------------------------------------------------
 
@@ -411,6 +519,27 @@ if (Test-Path -LiteralPath $PrepareChromiumScript) {
 }
 else {
     throw "prepare-image.ps1 not found. Chromium image artifact cannot be prepared."
+}
+
+# ------------------------------------------------------------
+# Prepare offline Open WebUI (ravios-webui) image artifact
+# ------------------------------------------------------------
+
+$PrepareWebuiScript = Join-Path $ProjectRoot "docker\webui\prepare-image.ps1"
+if (Test-Path -LiteralPath $PrepareWebuiScript) {
+    Write-Host ""
+    Write-Host "Preparing offline ravios-webui Docker image..."
+    $prepWebui = Start-Process -FilePath "powershell.exe" -ArgumentList @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $PrepareWebuiScript
+    ) -Wait -PassThru -NoNewWindow
+    if ($prepWebui.ExitCode -ne 0) {
+        throw "docker/webui/prepare-image.ps1 failed with exit code $($prepWebui.ExitCode)"
+    }
+}
+else {
+    throw "docker/webui/prepare-image.ps1 not found. WebUI image artifact cannot be prepared."
 }
 
 # ------------------------------------------------------------
@@ -552,11 +681,9 @@ try {
     # Build
     # --------------------------------------------------------
 
-    Write-Host "Removing previous Buildroot image..."
-
-    Invoke-Checked docker @(
-        "exec", $BuildContainer, "rm", "-f", $SourceContainerPath
-    ) "Could not remove the previous Buildroot image."
+    # Clear previous final image products (disk.img and siblings) and host
+    # staging files. Compile caches under output/build, host, target stay intact.
+    Remove-RaviOsEphemeralArtifacts -ContainerName $BuildContainer -ArtifactsRoot $ArtifactsDir
 
     Write-Host ""
     Write-Host "Building RaviOS..."
@@ -766,7 +893,7 @@ displayName = "RaviOS-Dev"
 guestOS = "otherlinux-64"
 virtualHW.version = "20"
 
-memsize = "2048"
+memsize = "6144"
 numvcpus = "2"
 cpuid.coresPerSocket = "2"
 firmware = "efi"
@@ -935,7 +1062,7 @@ sound.present = "FALSE"
 
     Invoke-Checked VBoxManage @(
         "modifyvm", $VmName,
-        "--memory", "2048",
+        "--memory", "6144",
         "--cpus", "2",
         "--firmware", "efi",
         "--boot1", "disk",

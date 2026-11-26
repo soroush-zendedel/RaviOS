@@ -6,15 +6,15 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261123-012057-3700 |
-| Generated | 2026-11-23 01:23:08 +03:30 |
+| Build ID | 20261126-211947-1184 |
+| Generated | 2026-11-26 21:24:08 +03:30 |
 | Hostname | ravios |
 | Buildroot | 2026.08.2 |
 | Linux Kernel | 7.3.3 |
 | BusyBox | 1.38.0 |
 | Docker Engine | 28.5.2 |
 | Docker Data mode | Create |
-| Requested disk size | 8G |
+| Requested disk size | 12G |
 | RootFS configured size | 4096M |
 
 ## Platform Summary
@@ -24,7 +24,7 @@
 | Docker Engine | y |
 | Docker CLI | y |
 | Kernel User Namespaces | Not set |
-| Installed Target packages | 95 |
+| Installed Target packages | 93 |
 | BusyBox applet links | 263 |
 | Standalone executable files | 237 |
 | Non-BusyBox symbolic links | 36 |
@@ -64,7 +64,6 @@
 | connman | 2.0 |
 | ifupdown-scripts | Unversioned |
 | iptables | 1.8.11 |
-| linux | 7.3.3 |
 | linux-firmware | 20260810 |
 | wireless-regdb | 2026.09.03 |
 | wpa_supplicant | 2.12 |
@@ -153,7 +152,6 @@
 | Package | Version |
 |---|---|
 | e2fsprogs | 1.47.4 |
-| grub2 | 2.14 |
 | kmod | 34.2 |
 | util-linux | 2.41.5 |
 
@@ -2191,7 +2189,7 @@ image docker-data.ext4 {
         label = "revayat"
     }
 
-    size = 3838M
+    size = 7934M
 }
 
 image disk.img {
@@ -2200,7 +2198,7 @@ image disk.img {
         align = "1M"
     }
 
-    size = 8G
+    size = 12G
 
     partition efi {
         image = "efi-part.vfat"
@@ -2210,7 +2208,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = 4f9a891d-61e7-456e-a14e-73801b7bb7d8
+        partition-uuid = 959ede7e-db9c-48bc-b383-a9ebd36ba17e
         image = "rootfs.ext2"
     }
 
