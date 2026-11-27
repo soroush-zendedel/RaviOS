@@ -1,3 +1,0 @@
-#!/bin/sh
-# Thin wrapper: start RaviOS app "webui" via ravios-app
-exec /usr/bin/ravios-app start webui "$@"

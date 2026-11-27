@@ -1,7 +1,7 @@
 {
   "name": "webui",
   "cli_name": "webui",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "image": "ravios-webui:latest",
   "container": "ravios-webui",
   "restart": "unless-stopped",
@@ -10,9 +10,24 @@
   "ports": [
     "127.0.0.1:8080:8080"
   ],
-  "volumes": [
-    "ravios-webui-data:/app/backend/data"
-  ],
+  "resources": {
+    "display": false,
+    "gpu": false,
+    "audio": false,
+    "networks": [
+      {
+        "name": "ravios-net",
+        "mode": "shared"
+      }
+    ],
+    "volumes": [
+      {
+        "name": "ravios-data-webui",
+        "target": "/app/backend/data",
+        "persistent": true
+      }
+    ]
+  },
   "environment": {
     "ENV": "prod",
     "WEBUI_AUTH": "false",
@@ -27,14 +42,11 @@
     "DO_NOT_TRACK": "1",
     "SCARF_NO_ANALYTICS": "true"
   },
-  "networks": [
-    "ravios-net"
-  ],
   "depends_on": [
     "ollama"
   ],
   "extra": {
     "secret_key": true
   },
-  "description": "RaviOS Open WebUI frontend (start via: webui  or  ravios-app start webui)"
+  "description": "RaviOS Open WebUI frontend. Persistent data on ravios-data-webui. Use --temp for a stateless run."
 }

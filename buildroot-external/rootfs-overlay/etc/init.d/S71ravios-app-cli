@@ -1,0 +1,17 @@
+#!/bin/sh
+# Install /usr/bin/<cli_name> → ravios-app symlinks for every seeded application.
+# Runs after Docker Data / ravios-apps seed is available.
+
+case "$1" in
+    start)
+        if [ -x /usr/bin/ravios-app ]; then
+            /usr/bin/ravios-app install-cli >/dev/null 2>&1 || true
+        fi
+        ;;
+    stop|restart|reload)
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

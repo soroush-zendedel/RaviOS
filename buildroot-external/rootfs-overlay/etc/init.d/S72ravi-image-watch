@@ -1,0 +1,48 @@
+#!/bin/sh
+# Background watcher: docker pull/load/import → ravi refresh
+
+DAEMON="ravi-image-watch"
+PIDFILE="/var/run/${DAEMON}.pid"
+BIN="/usr/libexec/ravios/docker-image-watch.sh"
+
+start() {
+    printf "Starting %s: " "$DAEMON"
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        echo "already running"
+        return 0
+    fi
+    if [ ! -x "$BIN" ]; then
+        echo "missing $BIN"
+        return 1
+    fi
+    start-stop-daemon -S -b -m -p "$PIDFILE" -x "$BIN" 2>/dev/null || {
+        # BusyBox without start-stop-daemon -m support
+        "$BIN" >/var/log/ravi-image-watch.log 2>&1 &
+        echo $! > "$PIDFILE"
+    }
+    echo "OK"
+}
+
+stop() {
+    printf "Stopping %s: " "$DAEMON"
+    if [ -f "$PIDFILE" ]; then
+        kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null || true
+        rm -f "$PIDFILE"
+    fi
+    killall docker-image-watch.sh 2>/dev/null || true
+    echo "OK"
+}
+
+restart() {
+    stop
+    sleep 1
+    start
+}
+
+case "$1" in
+    start|stop|restart) "$1" ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac

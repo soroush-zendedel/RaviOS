@@ -1,0 +1,36 @@
+{
+  "name": "{{cli_name}}",
+  "cli_name": "{{cli_name}}",
+  "version": "auto",
+  "image": "{{image}}",
+  "container": "{{cli_name}}",
+  "autostart": false,
+  "restart": "no",
+  "rm": true,
+  "interactive": true,
+  "resources": {
+    "display": false,
+    "gpu": false,
+    "audio": false,
+    "networks": [
+      {
+        "name": "{{default_network}}",
+        "mode": "shared"
+      }
+    ],
+    "volumes": [
+      {
+        "name": "{{volume_name}}",
+        "target": "/data",
+        "persistent": true
+      }
+    ]
+  },
+  "environment": {},
+  "env_from_host": [
+    "LANG",
+    "LC_ALL",
+    "TZ"
+  ],
+  "description": "Auto template for {{image}}. interactive=true: CLI name in a TTY runs docker -it --rm (image CMD: python REPL, shell, ...). Network {{default_network}}, volume {{volume_name}}->/data."
+}

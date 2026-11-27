@@ -425,7 +425,7 @@ $ContainerId = @(
 )
 
 $ContainerExists = ($ContainerId.Count -gt 0)
-$ContainerRunning = ""
+$ContainerRunning = "false"
 $ContainerImageId = $null
 $ExternalMountReady = $false
 
@@ -442,31 +442,70 @@ if ($ContainerExists) {
         throw "Could not inspect image of container '$BuildContainer'."
     }
 
+    # If the container is stopped but still usable, start it before judging mounts.
+    # This avoids unnecessary recreate (and name-conflict) when the project is
+    # simply being resumed.
+    if ("$ContainerRunning".Trim() -ne "true") {
+        $ImageMatches = (
+            -not [string]::IsNullOrWhiteSpace("$ComposeImageId") -and
+            "$ContainerImageId".Trim() -eq "$ComposeImageId".Trim()
+        )
+        if ($ImageMatches) {
+            Write-Host "Buildroot container '$BuildContainer' exists but is stopped; starting it..."
+            & docker start $ContainerId | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $ContainerRunning = "true"
+            }
+            else {
+                Write-Warning "Could not start existing container '$BuildContainer'; will recreate it."
+                $ContainerRunning = "false"
+            }
+        }
+    }
+
     if ("$ContainerRunning".Trim() -eq "true") {
         & docker exec $ContainerId test -f $ExternalDescriptorContainerPath
         $ExternalMountReady = ($LASTEXITCODE -eq 0)
     }
 }
 
-$ContainerNeedsRecreate = (
-    -not $ContainerExists -or
-    "$ContainerRunning".Trim() -ne "true" -or
-    -not $ExternalMountReady -or
-    "$ContainerImageId".Trim() -ne "$ComposeImageId".Trim()
+$ImageMatches = (
+    $ContainerExists -and
+    -not [string]::IsNullOrWhiteSpace("$ComposeImageId") -and
+    "$ContainerImageId".Trim() -eq "$ComposeImageId".Trim()
 )
 
-if ($ContainerNeedsRecreate) {
-    Write-Host ""
-    Write-Host "Creating the Buildroot container with the existing named volumes..."
+# Recreate only when there is no usable container, the image changed, or the
+# required bind mounts are missing. Prefer reuse/start over force-recreate.
+$ContainerNeedsRecreate = (
+    -not $ContainerExists -or
+    -not $ImageMatches -or
+    ("$ContainerRunning".Trim() -eq "true" -and -not $ExternalMountReady) -or
+    ("$ContainerRunning".Trim() -ne "true")
+)
 
-    # --no-build guarantees that Compose uses the image checked/built above.
-    # No -v, volume rm, prune, or cache-clearing operation is used.
-    Invoke-Checked docker (@("compose") + $ComposeArguments + @(
-        "up", "-d", "--no-build", "--force-recreate", $BuildContainer
-    )) "Could not recreate the Buildroot container with the current project mounts."
+if (-not $ContainerNeedsRecreate) {
+    Write-Host "Buildroot container and project mounts are already current; reusing the running container."
 }
 else {
-    Write-Host "Buildroot container and project mounts are already current; reusing the running container."
+    Write-Host ""
+    if ($ContainerExists) {
+        Write-Host "Refreshing Buildroot container '$BuildContainer' (remove + create; named volumes kept)..."
+        # Explicit remove avoids Compose name conflicts when an existing
+        # container (possibly created outside the current Compose project)
+        # still holds the name ravios-dev.
+        & docker rm -f $BuildContainer 2>$null | Out-Null
+    }
+    else {
+        Write-Host "Creating the Buildroot container with the existing named volumes..."
+    }
+
+    # --no-build: use the image checked/built above.
+    # Do NOT use --force-recreate alone: if remove failed or Compose cannot
+    # adopt the existing container, that flag still hits a name conflict.
+    Invoke-Checked docker (@("compose") + $ComposeArguments + @(
+        "up", "-d", "--no-build", $BuildContainer
+    )) "Could not create/start the Buildroot container with the current project mounts."
 }
 
 $ContainerRunning = & docker inspect --format '{{.State.Running}}' $BuildContainer

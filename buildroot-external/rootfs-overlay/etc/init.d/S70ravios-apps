@@ -277,6 +277,36 @@ process_app() {
         return 0
     fi
 
+    # --- Ollama model seed (must run even when autostart=false) ---
+    model_archive="$(json_get "$app_json" model_archive 2>/dev/null || true)"
+    if [ -z "$model_archive" ]; then
+        model_archive="$(sed -n 's/.*"model_archive"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$app_json" | head -1)"
+    fi
+    model_volume="$(sed -n 's/.*"model_volume"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$app_json" | head -1)"
+    if [ -n "$model_archive" ] && [ -n "$model_volume" ]; then
+        model_path="$app_dir/$model_archive"
+        if [ -s "$model_path" ]; then
+            docker volume create "$model_volume" >/dev/null 2>&1 || true
+            mp="$(docker volume inspect --format '{{.Mountpoint}}' "$model_volume" 2>/dev/null)"
+            if [ -n "$mp" ] && [ -d "$mp" ]; then
+                if [ ! -f "$mp/.ravios-model-ready" ]; then
+                    log "extracting model archive for $name from $model_archive"
+                    if tar -xf "$model_path" -C "$mp"; then
+                        touch "$mp/.ravios-model-ready"
+                        rm -f "$model_path"
+                        log "model seed ready on volume $model_volume"
+                    else
+                        log "WARN: failed to extract model archive $model_path"
+                    fi
+                fi
+            else
+                log "WARN: cannot resolve mountpoint for volume $model_volume"
+            fi
+        else
+            log "WARN: model archive missing: $model_path"
+        fi
+    fi
+
     # autostart=false: image is loaded (and tar cleaned) but container is not started
     if [ "$autostart" = "false" ]; then
         log "autostart=false for $name, skip container start"
@@ -291,32 +321,9 @@ process_app() {
     # Wait for depends_on containers before create/start
     wait_for_depends "$app_json"
 
-    # --- special extra handling (ollama models, webui secret) ---
-    # Ollama model extraction
-    model_archive="$(json_get "$app_json" model_archive 2>/dev/null || true)"
-    # fall back to nested extra via simple grep if needed
-    if [ -z "$model_archive" ]; then
-        model_archive="$(sed -n 's/.*"model_archive"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$app_json" | head -1)"
-    fi
-    model_volume="$(sed -n 's/.*"model_volume"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$app_json" | head -1)"
+        # (model seed already applied earlier)
 
-    if [ -n "$model_archive" ] && [ -n "$model_volume" ]; then
-        model_path="$app_dir/$model_archive"
-        if [ -s "$model_path" ]; then
-            mp="$(docker volume inspect --format '{{.Mountpoint}}' "$model_volume" 2>/dev/null)"
-            if [ -n "$mp" ] && [ -d "$mp" ]; then
-                # only extract if marker missing (simple check)
-                if [ ! -f "$mp/.ravios-model-ready" ]; then
-                    log "extracting model archive for $name"
-                    tar -xf "$model_path" -C "$mp" && touch "$mp/.ravios-model-ready"
-                    # optional: remove model archive after extract
-                    rm -f "$model_path"
-                fi
-            fi
-        fi
-    fi
-
-    # --- create or start container ---
+# --- create or start container ---
     if docker container inspect "$container" >/dev/null 2>&1; then
         running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null)"
         if [ "$running" != "true" ]; then

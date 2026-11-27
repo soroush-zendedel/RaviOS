@@ -1,0 +1,58 @@
+#!/bin/sh
+# RaviOS host group + device baseline
+#
+# Application Manager providers emit standard group names (video, render, audio).
+# This script guarantees those groups exist and that DRM nodes are group-accessible
+# before Docker or the desktop session starts.
+
+ensure_group() {
+    name="$1"
+    gid="$2"
+    if grep -q "^${name}:" /etc/group 2>/dev/null; then
+        return 0
+    fi
+    if command -v addgroup >/dev/null 2>&1; then
+        addgroup -g "$gid" -S "$name" 2>/dev/null && return 0
+        addgroup -g "$gid" "$name" 2>/dev/null && return 0
+    fi
+    echo "${name}:x:${gid}:" >> /etc/group 2>/dev/null || true
+}
+
+fix_dri_permissions() {
+    [ -d /dev/dri ] || return 0
+    # card* → video, renderD* → render (common Linux desktop convention)
+    for node in /dev/dri/card*; do
+        [ -e "$node" ] || continue
+        chgrp video "$node" 2>/dev/null || true
+        chmod 0660 "$node" 2>/dev/null || true
+    done
+    for node in /dev/dri/renderD*; do
+        [ -e "$node" ] || continue
+        chgrp render "$node" 2>/dev/null || true
+        # render nodes are often world-accessible for user-mode drivers
+        chmod 0666 "$node" 2>/dev/null || true
+    done
+    for node in /dev/dri/controlD*; do
+        [ -e "$node" ] || continue
+        chgrp video "$node" 2>/dev/null || true
+        chmod 0660 "$node" 2>/dev/null || true
+    done
+}
+
+case "$1" in
+    start)
+        ensure_group video 44
+        ensure_group render 110
+        ensure_group audio 29
+        ensure_group pipewire 122
+        ensure_group input 104
+        ensure_group disk 6
+        fix_dri_permissions
+        ;;
+    stop) ;;
+    *)
+        echo "Usage: $0 {start|stop}"
+        exit 1
+        ;;
+esac
+exit 0

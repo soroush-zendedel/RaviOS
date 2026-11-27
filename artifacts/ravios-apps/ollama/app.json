@@ -1,7 +1,7 @@
 {
   "name": "ollama",
   "cli_name": "ollama",
-  "version": "1.0.1",
+  "version": "1.2.0",
   "image": "ravi-ollama:cpu",
   "container": "ravi-ollama",
   "restart": "unless-stopped",
@@ -10,9 +10,24 @@
   "ports": [
     "11434:11434"
   ],
-  "volumes": [
-    "ravi-ollama-models:/models"
-  ],
+  "resources": {
+    "display": false,
+    "gpu": false,
+    "audio": false,
+    "networks": [
+      {
+        "name": "ravios-net",
+        "mode": "shared"
+      }
+    ],
+    "volumes": [
+      {
+        "name": "ravios-data-ollama",
+        "target": "/models",
+        "persistent": true
+      }
+    ]
+  },
   "environment": {
     "OLLAMA_HOST": "0.0.0.0:11434",
     "OLLAMA_MODELS": "/models",
@@ -20,13 +35,10 @@
     "OLLAMA_NOPRUNE": "true",
     "OLLAMA_VULKAN": "false"
   },
-  "networks": [
-    "ravios-net"
-  ],
   "extra": {
     "model_archive": "models/qwen2.5-0.5b.tar",
-    "model_volume": "ravi-ollama-models",
+    "model_volume": "ravios-data-ollama",
     "model_manifest": "manifests/registry.ollama.ai/library/qwen2.5/0.5b"
   },
-  "description": "RaviOS offline Ollama with Qwen 2.5 0.5B"
+  "description": "RaviOS offline Ollama with Qwen 2.5 0.5B. Persistent models on ravios-data-ollama. Use --temp for a stateless run."
 }

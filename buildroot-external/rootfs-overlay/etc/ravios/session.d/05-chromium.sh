@@ -4,8 +4,11 @@
 #
 # Start manually from foot:
 #   chromium
+#   chromium --temp
+#   chromium --logs
 #   ravios-app start chromium
 #
-# Launch implementation: /usr/libexec/ravios/chromium-launch.sh
+# Implementation: generic Application Manager (/usr/bin/ravios-app).
+# No per-app launch script.
 
 exit 0

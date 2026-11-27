@@ -6,8 +6,8 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261127-165743-19460 |
-| Generated | 2026-11-27 17:01:42 +03:30 |
+| Build ID | 20261128-010410-19808 |
+| Generated | 2026-11-28 01:08:04 +03:30 |
 | Hostname | ravios |
 | Buildroot | 2026.08.2 |
 | Linux Kernel | 7.3.3 |
@@ -26,8 +26,8 @@
 | Kernel User Namespaces | y |
 | Installed Target packages | 94 |
 | BusyBox applet links | 263 |
-| Standalone executable files | 241 |
-| Non-BusyBox symbolic links | 36 |
+| Standalone executable files | 238 |
+| Non-BusyBox symbolic links | 40 |
 | Active Kernel options (=y or =m) | 1340 |
 
 ## Important Notes
@@ -521,7 +521,6 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/bits`
 - `/usr/bin/cairo-trace`
 - `/usr/bin/choom`
-- `/usr/bin/chromium`
 - `/usr/bin/col`
 - `/usr/bin/colcrt`
 - `/usr/bin/colrm`
@@ -617,7 +616,6 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/nettle-pbkdf2`
 - `/usr/bin/niri`
 - `/usr/bin/niri-session`
-- `/usr/bin/ollama`
 - `/usr/bin/pango-list`
 - `/usr/bin/pango-segmentation`
 - `/usr/bin/pango-view`
@@ -638,7 +636,7 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/pw-mon`
 - `/usr/bin/pw-profiler`
 - `/usr/bin/pw-reserve`
-- `/usr/bin/ravios-app`
+- `/usr/bin/ravi`
 - `/usr/bin/ravios-session`
 - `/usr/bin/renice`
 - `/usr/bin/rev`
@@ -664,7 +662,6 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/uuidparse`
 - `/usr/bin/wayland-scanner`
 - `/usr/bin/wcurl`
-- `/usr/bin/webui`
 - `/usr/bin/whereis`
 - `/usr/bin/wireplumber`
 - `/usr/bin/wpctl`
@@ -701,6 +698,7 @@ Installed symbolic links in the standard command directories that do not point t
 | mkfs.ext3 | `/sbin/mkfs.ext3` |
 | mkfs.ext4 | `/sbin/mkfs.ext4` |
 | udevadm | `/sbin/udevadm` |
+| chromium | `/usr/bin/chromium` |
 | dbclient | `/usr/bin/dbclient` |
 | dropbearconvert | `/usr/bin/dropbearconvert` |
 | dropbearkey | `/usr/bin/dropbearkey` |
@@ -708,12 +706,15 @@ Installed symbolic links in the standard command directories that do not point t
 | iptables-xml | `/usr/bin/iptables-xml` |
 | linux32 | `/usr/bin/linux32` |
 | linux64 | `/usr/bin/linux64` |
+| ollama | `/usr/bin/ollama` |
 | pipewire-aes67 | `/usr/bin/pipewire-aes67` |
 | pipewire-avb | `/usr/bin/pipewire-avb` |
 | pipewire-pulse | `/usr/bin/pipewire-pulse` |
+| ravios-app | `/usr/bin/ravios-app` |
 | scp | `/usr/bin/scp` |
 | ssh | `/usr/bin/ssh` |
 | uname26 | `/usr/bin/uname26` |
+| webui | `/usr/bin/webui` |
 | x86_64 | `/usr/bin/x86_64` |
 | ip6tables | `/usr/sbin/ip6tables` |
 | ip6tables-apply | `/usr/sbin/ip6tables-apply` |
@@ -2216,7 +2217,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = 0c001165-28d9-4919-866b-aa795c4d3d05
+        partition-uuid = 65d0c575-602f-4941-ae5f-c52c0ac8c2ab
         image = "rootfs.ext2"
     }
 

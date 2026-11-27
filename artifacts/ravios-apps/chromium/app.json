@@ -1,19 +1,78 @@
 {
   "name": "chromium",
   "cli_name": "chromium",
-  "version": "1.1.2",
+  "version": "1.4.0",
   "image": "ravios-chromium:latest",
   "container": "chromium",
-  "load_only": true,
   "autostart": false,
   "load_priority": 10,
-  "volumes": [
-    "ravios-chromium-data:/data",
-    "ravios-chromium-cache:/cache"
+  "restart": "no",
+  "resources": {
+    "display": true,
+    "gpu": true,
+    "audio": true,
+    "networks": [
+      {
+        "name": "ravios-net",
+        "mode": "shared"
+      }
+    ],
+    "volumes": [
+      {
+        "name": "ravios-data-chromium",
+        "target": "/data",
+        "persistent": true
+      }
+    ]
+  },
+  "command": [
+    "chromium",
+    "--no-sandbox",
+    "--test-type",
+    "--disable-dev-shm-usage",
+    "--user-data-dir=/data",
+    "--disk-cache-dir=/data/cache",
+    "--download-default-directory=/data/Downloads",
+    "--ozone-platform=wayland",
+    "--enable-features=VaapiVideoDecoder,VaapiVideoEncoder,VaapiIgnoreDriverChecks,CanvasOopRasterization,UseOzonePlatform,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL",
+    "--ignore-gpu-blocklist",
+    "--enable-gpu-rasterization",
+    "--enable-zero-copy",
+    "--use-gl=angle",
+    "--use-angle=gl",
+    "--disable-gpu-driver-bug-workarounds",
+    "--disable-features=TranslateUI,MediaRouter,UseChromeOSDirectVideoDecoder",
+    "--check-for-update-interval=31536000",
+    "--disable-component-update",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-sync",
+    "--disable-background-networking",
+    "file:///usr/share/ravios/webui-wait.html"
   ],
+  "pre_start": {
+    "clear_locks": {
+      "volume": "ravios-data-chromium",
+      "paths": [
+        "SingletonLock",
+        "SingletonCookie",
+        "SingletonSocket",
+        "lockfile",
+        ".org.chromium.Chromium.*",
+        "Default/LOCK",
+        "Default/lockfile"
+      ]
+    }
+  },
+  "rm": false,
+  "description": "RaviOS Chromium via generic Application Manager. Profile+cache on ravios-data-chromium at /data. --no-sandbox/--test-type required inside the container until host User Namespace fully supports the Chromium sandbox. Use --temp for a stateless run.",
+  "environment": {
+    "LANG": "C.UTF-8",
+    "LIBGL_ALWAYS_SOFTWARE": "0"
+  },
   "env_from_host": [
-    "WAYLAND_DISPLAY",
-    "XDG_RUNTIME_DIR"
-  ],
-  "description": "RaviOS Chromium: profile+history in /data, cache in /cache, downloads in /data/Downloads (survive reboot)"
+    "LANG",
+    "LC_ALL",
+    "TZ"
+  ]
 }
