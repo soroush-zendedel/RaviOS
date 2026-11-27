@@ -6,8 +6,8 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261127-035209-2640 |
-| Generated | 2026-11-27 03:56:04 +03:30 |
+| Build ID | 20261127-165743-19460 |
+| Generated | 2026-11-27 17:01:42 +03:30 |
 | Hostname | ravios |
 | Buildroot | 2026.08.2 |
 | Linux Kernel | 7.3.3 |
@@ -23,12 +23,12 @@
 |---|---|
 | Docker Engine | y |
 | Docker CLI | y |
-| Kernel User Namespaces | Not set |
+| Kernel User Namespaces | y |
 | Installed Target packages | 94 |
 | BusyBox applet links | 263 |
 | Standalone executable files | 241 |
 | Non-BusyBox symbolic links | 36 |
-| Active Kernel options (=y or =m) | 1339 |
+| Active Kernel options (=y or =m) | 1340 |
 
 ## Important Notes
 
@@ -776,6 +776,7 @@ CONFIG_NET_NS=y
 CONFIG_PID_NS=y
 CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y
+CONFIG_USER_NS=y
 CONFIG_UTS_NS=y
 ```
 
@@ -2157,7 +2158,7 @@ This is a focused list of important Docker-related kernel options, not an exhaus
 | CONFIG_NAMESPACES | y |
 | CONFIG_UTS_NS | y |
 | CONFIG_IPC_NS | y |
-| CONFIG_USER_NS | Not set |
+| CONFIG_USER_NS | y |
 | CONFIG_PID_NS | y |
 | CONFIG_NET_NS | y |
 | CONFIG_SECCOMP | y |
@@ -2215,7 +2216,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = 538dcea8-38b0-4227-82ee-018515f3d2a8
+        partition-uuid = 0c001165-28d9-4919-866b-aa795c4d3d05
         image = "rootfs.ext2"
     }
 
