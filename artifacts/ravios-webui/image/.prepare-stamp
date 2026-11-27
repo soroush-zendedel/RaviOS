@@ -1,8 +1,0 @@
-﻿{
-    "imageId":  "sha256:4b688aeb5e5c890c320f02282c7b7d0da4718edf30d7c724530775ef81f084f9",
-    "baseImageId":  "sha256:ff7f7cbb4545aacec2c22d085b2bc406b299c119bd98747421124a1a6c03795f",
-    "dockerfileHash":  "584dfb84c5f5cdaadbf7460c9979d48c74a4e5acdddf76df44320312eb0af3a7",
-    "imageName":  "ravios-webui:latest",
-    "baseImage":  "registry.docker.ir/openwebui/open-webui:latest",
-    "savedAtUtc":  "2026-11-26T15:33:56.2513088Z"
-}

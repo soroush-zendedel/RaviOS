@@ -6,16 +6,16 @@
 
 | Property | Value |
 |---|---|
-| Build ID | 20261126-211947-1184 |
-| Generated | 2026-11-26 21:24:08 +03:30 |
+| Build ID | 20261127-035209-2640 |
+| Generated | 2026-11-27 03:56:04 +03:30 |
 | Hostname | ravios |
 | Buildroot | 2026.08.2 |
 | Linux Kernel | 7.3.3 |
 | BusyBox | 1.38.0 |
 | Docker Engine | 28.5.2 |
 | Docker Data mode | Create |
-| Requested disk size | 12G |
-| RootFS configured size | 4096M |
+| Requested disk size | 16G |
+| RootFS configured size | 1333M |
 
 ## Platform Summary
 
@@ -24,9 +24,9 @@
 | Docker Engine | y |
 | Docker CLI | y |
 | Kernel User Namespaces | Not set |
-| Installed Target packages | 93 |
+| Installed Target packages | 94 |
 | BusyBox applet links | 263 |
-| Standalone executable files | 237 |
+| Standalone executable files | 241 |
 | Non-BusyBox symbolic links | 36 |
 | Active Kernel options (=y or =m) | 1339 |
 
@@ -64,6 +64,7 @@
 | connman | 2.0 |
 | ifupdown-scripts | Unversioned |
 | iptables | 1.8.11 |
+| linux | 7.3.3 |
 | linux-firmware | 20260810 |
 | wireless-regdb | 2026.09.03 |
 | wpa_supplicant | 2.12 |
@@ -520,6 +521,7 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/bits`
 - `/usr/bin/cairo-trace`
 - `/usr/bin/choom`
+- `/usr/bin/chromium`
 - `/usr/bin/col`
 - `/usr/bin/colcrt`
 - `/usr/bin/colrm`
@@ -615,6 +617,7 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/nettle-pbkdf2`
 - `/usr/bin/niri`
 - `/usr/bin/niri-session`
+- `/usr/bin/ollama`
 - `/usr/bin/pango-list`
 - `/usr/bin/pango-segmentation`
 - `/usr/bin/pango-view`
@@ -635,6 +638,7 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/pw-mon`
 - `/usr/bin/pw-profiler`
 - `/usr/bin/pw-reserve`
+- `/usr/bin/ravios-app`
 - `/usr/bin/ravios-session`
 - `/usr/bin/renice`
 - `/usr/bin/rev`
@@ -660,6 +664,7 @@ Regular executable files found in the standard command directories.
 - `/usr/bin/uuidparse`
 - `/usr/bin/wayland-scanner`
 - `/usr/bin/wcurl`
+- `/usr/bin/webui`
 - `/usr/bin/whereis`
 - `/usr/bin/wireplumber`
 - `/usr/bin/wpctl`
@@ -2185,11 +2190,13 @@ image efi-part.vfat {
 image docker-data.ext4 {
     ext4 {
         use-mke2fs = true
-        extraargs = "-U 66666666-6666-6666-6666-666666666666"
+        # -d seeds the filesystem from a host directory (no loop-mount required).
+        # UUID/label must match ravios-docker-data discovery.
+        extraargs = "-U 66666666-6666-6666-6666-666666666666 -d /workspace/output/images/docker-data-root"
         label = "revayat"
     }
 
-    size = 7934M
+    size = 14793M
 }
 
 image disk.img {
@@ -2198,7 +2205,7 @@ image disk.img {
         align = "1M"
     }
 
-    size = 12G
+    size = 16G
 
     partition efi {
         image = "efi-part.vfat"
@@ -2208,7 +2215,7 @@ image disk.img {
 
     partition rootfs {
         partition-type-uuid = L
-        partition-uuid = 959ede7e-db9c-48bc-b383-a9ebd36ba17e
+        partition-uuid = 538dcea8-38b0-4227-82ee-018515f3d2a8
         image = "rootfs.ext2"
     }
 

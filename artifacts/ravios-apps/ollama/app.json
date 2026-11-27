@@ -1,0 +1,32 @@
+{
+  "name": "ollama",
+  "cli_name": "ollama",
+  "version": "1.0.1",
+  "image": "ravi-ollama:cpu",
+  "container": "ravi-ollama",
+  "restart": "unless-stopped",
+  "autostart": false,
+  "load_priority": 20,
+  "ports": [
+    "11434:11434"
+  ],
+  "volumes": [
+    "ravi-ollama-models:/models"
+  ],
+  "environment": {
+    "OLLAMA_HOST": "0.0.0.0:11434",
+    "OLLAMA_MODELS": "/models",
+    "OLLAMA_NO_CLOUD": "true",
+    "OLLAMA_NOPRUNE": "true",
+    "OLLAMA_VULKAN": "false"
+  },
+  "networks": [
+    "ravios-net"
+  ],
+  "extra": {
+    "model_archive": "models/qwen2.5-0.5b.tar",
+    "model_volume": "ravi-ollama-models",
+    "model_manifest": "manifests/registry.ollama.ai/library/qwen2.5/0.5b"
+  },
+  "description": "RaviOS offline Ollama with Qwen 2.5 0.5B"
+}

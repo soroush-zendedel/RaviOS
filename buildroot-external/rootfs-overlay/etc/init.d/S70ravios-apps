@@ -1,0 +1,490 @@
+#!/bin/sh
+# RaviOS Application Manager
+# Discovers, loads and starts RaviOS apps declared under the Docker Data
+# seed directory. Rootfs stays free of application image tarballs.
+#
+# Seed layout (on the Docker Data partition root):
+#   /ravios-apps/<app-name>/app.json
+#   /ravios-apps/<app-name>/image.tar          (removed after successful load)
+#   /ravios-apps/<app-name>/...               (optional extra files)
+#
+# When Docker Data is mounted at /var/lib/docker the seed appears at:
+#   /var/lib/docker/ravios-apps/
+
+NAME="ravios-apps"
+SEED_ROOT="/var/lib/docker/ravios-apps"
+STATE_DIR="/var/lib/ravios/apps"
+STATUS_FILE="/var/lib/ravios/docker-data/status"
+
+log() {
+    echo "$NAME: $*"
+}
+
+# ---------- helpers ----------
+
+wait_for_docker() {
+    i=0
+    while [ "$i" -lt 60 ]; do
+        if docker info >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+docker_data_ready() {
+    STATUS="$(awk -F= '$1 == "STATUS" {print $2}' "$STATUS_FILE" 2>/dev/null)"
+    [ "$STATUS" = "ready" ] || return 1
+    awk '$2 == "/var/lib/docker" && $3 == "ext4" {found=1} END {exit !found}' /proc/mounts
+}
+
+# Very small JSON value extractor (BusyBox-friendly).
+# Usage: json_get <file> <key>
+# Supports only top-level string / boolean / number values and simple arrays
+# of strings. Good enough for our app.json schema.
+json_get() {
+    file="$1"
+    key="$2"
+    [ -r "$file" ] || return 1
+
+    # string value
+    val="$(sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | head -1)"
+    if [ -n "$val" ]; then
+        printf '%s\n' "$val"
+        return 0
+    fi
+
+    # boolean / number (no quotes)
+    val="$(sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\([^,[:space:]}]*\).*/\1/p" "$file" | head -1)"
+    if [ -n "$val" ]; then
+        printf '%s\n' "$val"
+        return 0
+    fi
+    return 1
+}
+
+# Extract a JSON string array as space-separated values (best-effort).
+json_get_array() {
+    file="$1"
+    key="$2"
+    [ -r "$file" ] || return 1
+
+    # crude extraction of the array body
+    body="$(tr '\n' ' ' < "$file" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p")"
+    [ -n "$body" ] || return 1
+
+    echo "$body" | tr ',' '\n' | sed 's/[[:space:]]*"\([^"]*\)".*/\1/' | tr '\n' ' '
+}
+
+ensure_network() {
+    net="$1"
+    [ -n "$net" ] || return 0
+    if ! docker network inspect "$net" >/dev/null 2>&1; then
+        log "creating network $net"
+        docker network create "$net" >/dev/null || return 1
+    fi
+    return 0
+}
+
+ensure_volume() {
+    vol="$1"
+    # volume entries may be "name" or "name:path"
+    name="${vol%%:*}"
+    [ -n "$name" ] || return 0
+    if ! docker volume inspect "$name" >/dev/null 2>&1; then
+        log "creating volume $name"
+        docker volume create "$name" >/dev/null || return 1
+    fi
+    return 0
+}
+
+ensure_secret_key() {
+    secret_dir="/var/lib/ravios/webui"
+    secret_file="$secret_dir/secret_key"
+    if [ -s "$secret_file" ]; then
+        cat "$secret_file"
+        return 0
+    fi
+    mkdir -p "$secret_dir"
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32 > "$secret_file"
+    else
+        tr -dc 'a-f0-9' < /dev/urandom | head -c 64 > "$secret_file"
+    fi
+    chmod 600 "$secret_file"
+    cat "$secret_file"
+}
+
+record_loaded_version() {
+    app="$1"
+    version="$2"
+    mkdir -p "$STATE_DIR"
+    echo "$version" > "$STATE_DIR/$app.version"
+}
+
+get_loaded_version() {
+    app="$1"
+    [ -r "$STATE_DIR/$app.version" ] && cat "$STATE_DIR/$app.version"
+}
+
+# ---------- dependency helpers ----------
+
+# Map app name / cli_name / folder -> container name
+resolve_app_container() {
+    dep_name="$1"
+    [ -d "$SEED_ROOT" ] || { printf '%s\n' "$dep_name"; return 0; }
+    for d in "$SEED_ROOT"/*; do
+        [ -r "$d/app.json" ] || continue
+        n="$(json_get "$d/app.json" name 2>/dev/null || true)"
+        c="$(json_get "$d/app.json" cli_name 2>/dev/null || true)"
+        cont="$(json_get "$d/app.json" container 2>/dev/null || true)"
+        if [ "$n" = "$dep_name" ] || [ "$c" = "$dep_name" ] || [ "$(basename "$d")" = "$dep_name" ]; then
+            if [ -n "$cont" ]; then
+                printf '%s\n' "$cont"
+                return 0
+            fi
+        fi
+    done
+    printf '%s\n' "$dep_name"
+    return 0
+}
+
+wait_for_container_running() {
+    cont="$1"
+    timeout_s="${2:-180}"
+    i=0
+    while [ "$i" -lt "$timeout_s" ]; do
+        if docker container inspect "$cont" >/dev/null 2>&1; then
+            running="$(docker inspect --format '{{.State.Running}}' "$cont" 2>/dev/null || echo false)"
+            if [ "$running" = "true" ]; then
+                return 0
+            fi
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+wait_for_depends() {
+    app_json="$1"
+    for dep in $(json_get_array "$app_json" depends_on); do
+        [ -n "$dep" ] || continue
+        dep_cont="$(resolve_app_container "$dep")"
+        log "waiting for dependency '$dep' (container=$dep_cont) ..."
+        if wait_for_container_running "$dep_cont" 180; then
+            log "dependency '$dep' is running"
+            sleep 3
+        else
+            log "WARN: dependency '$dep' not running after 180s — starting anyway"
+        fi
+    done
+}
+
+# ---------- per-app processing ----------
+# phase: load | start | all (default)
+
+process_app() {
+    app_dir="$1"
+    phase="${2:-all}"
+    app_json="$app_dir/app.json"
+    image_tar="$app_dir/image.tar"
+
+    [ -r "$app_json" ] || return 0
+
+    name="$(json_get "$app_json" name)"
+    version="$(json_get "$app_json" version)"
+    image="$(json_get "$app_json" image)"
+    container="$(json_get "$app_json" container)"
+    load_only="$(json_get "$app_json" load_only)"
+    autostart="$(json_get "$app_json" autostart)"
+    # Default autostart to true when the field is absent
+    if [ -z "$autostart" ]; then
+        autostart="true"
+    fi
+    restart="$(json_get "$app_json" restart)"
+    [ -n "$restart" ] || restart="unless-stopped"
+
+    [ -n "$name" ] && [ -n "$image" ] || {
+        log "skip $app_dir (invalid app.json)"
+        return 0
+    }
+
+    log "processing app=$name version=$version image=$image"
+
+    # --- ensure declared networks ---
+    for net in $(json_get_array "$app_json" networks); do
+        ensure_network "$net" || {
+            log "FAIL: cannot ensure network $net"
+            return 1
+        }
+    done
+
+    # --- ensure declared volumes ---
+    for vol in $(json_get_array "$app_json" volumes); do
+        ensure_volume "$vol" || {
+            log "FAIL: cannot ensure volume $vol"
+            return 1
+        }
+    done
+
+    # --- load image if missing or newer version requested ---
+    need_load=0
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+        need_load=1
+    else
+        prev="$(get_loaded_version "$name")"
+        if [ -n "$version" ] && [ -n "$prev" ] && [ "$version" != "$prev" ]; then
+            log "version change detected for $name ($prev -> $version), will reload"
+            need_load=1
+        fi
+    fi
+
+    if [ "$need_load" -eq 1 ]; then
+        if [ ! -s "$image_tar" ]; then
+            log "SKIP load for $name: image missing and no seed tar at $image_tar"
+            # continue; container may still be startable if image somehow exists
+        else
+            log "loading $image_tar ..."
+            if docker load -i "$image_tar"; then
+                record_loaded_version "$name" "$version"
+                # remove tar after successful load (user requirement)
+                rm -f "$image_tar"
+                log "loaded $name and removed seed tar"
+            else
+                log "FAIL: docker load for $name"
+                return 1
+            fi
+        fi
+    else
+        # already present; still record version if we have it
+        [ -n "$version" ] && record_loaded_version "$name" "$version"
+        # clean leftover tar if any
+        [ -f "$image_tar" ] && rm -f "$image_tar"
+    fi
+
+    # Phase "load": stop after image/model work (no container start)
+    if [ "$phase" = "load" ]; then
+        log "load phase done for $name"
+        return 0
+    fi
+
+    # load_only apps stop here (e.g. chromium is started by the desktop session)
+    if [ "$load_only" = "true" ]; then
+        log "load_only=true for $name, skip container management"
+        return 0
+    fi
+
+    # autostart=false: image is loaded (and tar cleaned) but container is not started
+    if [ "$autostart" = "false" ]; then
+        log "autostart=false for $name, skip container start"
+        return 0
+    fi
+
+    [ -n "$container" ] || {
+        log "no container name for $name, skip run"
+        return 0
+    }
+
+    # Wait for depends_on containers before create/start
+    wait_for_depends "$app_json"
+
+    # --- special extra handling (ollama models, webui secret) ---
+    # Ollama model extraction
+    model_archive="$(json_get "$app_json" model_archive 2>/dev/null || true)"
+    # fall back to nested extra via simple grep if needed
+    if [ -z "$model_archive" ]; then
+        model_archive="$(sed -n 's/.*"model_archive"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$app_json" | head -1)"
+    fi
+    model_volume="$(sed -n 's/.*"model_volume"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$app_json" | head -1)"
+
+    if [ -n "$model_archive" ] && [ -n "$model_volume" ]; then
+        model_path="$app_dir/$model_archive"
+        if [ -s "$model_path" ]; then
+            mp="$(docker volume inspect --format '{{.Mountpoint}}' "$model_volume" 2>/dev/null)"
+            if [ -n "$mp" ] && [ -d "$mp" ]; then
+                # only extract if marker missing (simple check)
+                if [ ! -f "$mp/.ravios-model-ready" ]; then
+                    log "extracting model archive for $name"
+                    tar -xf "$model_path" -C "$mp" && touch "$mp/.ravios-model-ready"
+                    # optional: remove model archive after extract
+                    rm -f "$model_path"
+                fi
+            fi
+        fi
+    fi
+
+    # --- create or start container ---
+    if docker container inspect "$container" >/dev/null 2>&1; then
+        running="$(docker inspect --format '{{.State.Running}}' "$container" 2>/dev/null)"
+        if [ "$running" != "true" ]; then
+            log "starting existing container $container"
+            docker start "$container" >/dev/null || {
+                log "FAIL: cannot start $container"
+                return 1
+            }
+        else
+            log "container $container already running"
+        fi
+        return 0
+    fi
+
+    log "creating container $container"
+
+    # Build docker run arguments from app.json
+    set -- run -d --name "$container" --restart "$restart"
+
+    # networks
+    for net in $(json_get_array "$app_json" networks); do
+        set -- "$@" --network "$net"
+    done
+
+    # ports
+    for p in $(json_get_array "$app_json" ports); do
+        set -- "$@" -p "$p"
+    done
+
+    # volumes
+    for vol in $(json_get_array "$app_json" volumes); do
+        set -- "$@" -v "$vol"
+    done
+
+    # environment (best-effort parse of simple key/value pairs)
+    # We re-read the file and extract "KEY": "VALUE" pairs under "environment"
+    env_block="$(tr '\n' ' ' < "$app_json" | sed -n 's/.*"environment"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p')"
+    if [ -n "$env_block" ]; then
+        old_ifs="$IFS"
+        IFS=','
+        for pair in $env_block; do
+            k="$(echo "$pair" | sed -n 's/.*"\([^"]*\)"[[:space:]]*:.*/\1/p')"
+            v="$(echo "$pair" | sed -n 's/.*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+            if [ -n "$k" ] && [ -n "$v" ]; then
+                set -- "$@" -e "$k=$v"
+            fi
+        done
+        IFS="$old_ifs"
+    fi
+
+    # env_from_host: pass selected host environment variables into the container
+    for hk in $(json_get_array "$app_json" env_from_host); do
+        eval "hv=\${$hk-}"
+        if [ -n "$hv" ]; then
+            set -- "$@" -e "$hk=$hv"
+        fi
+    done
+
+    # WebUI secret key injection
+    if echo "$(cat "$app_json")" | grep -q '"secret_key"[[:space:]]*:[[:space:]]*true'; then
+        sk="$(ensure_secret_key)"
+        set -- "$@" -e "WEBUI_SECRET_KEY=$sk"
+    fi
+
+    set -- "$@" "$image"
+
+    if ! docker "$@"; then
+        log "FAIL: cannot create container $container"
+        return 1
+    fi
+
+    log "container $container created and started"
+    return 0
+}
+
+# ---------- main ----------
+
+start() {
+    printf "Starting $NAME: "
+
+    if ! command -v docker >/dev/null 2>&1; then
+        echo "SKIP (no docker)"
+        return 0
+    fi
+
+    # Never hard-SKIP on first attempt: Docker Data / dockerd may not be ready
+    # yet when S70 runs. A background worker waits and then loads images so
+    # the desktop (S90) is not blocked and first boot still seeds images.
+    echo "OK (background worker)"
+    (
+        # Wait for Docker Data mount + status=ready (up to ~3 minutes)
+        i=0
+        while [ "$i" -lt 90 ]; do
+            if docker_data_ready; then
+                break
+            fi
+            sleep 2
+            i=$((i + 1))
+        done
+        if ! docker_data_ready; then
+            log "background: Docker Data not ready after wait — abort"
+            exit 1
+        fi
+
+        if ! wait_for_docker; then
+            log "background: dockerd not ready after wait — abort"
+            exit 1
+        fi
+
+        # Seed tree may appear slightly after mount
+        j=0
+        while [ "$j" -lt 30 ]; do
+            if [ -d "$SEED_ROOT" ]; then
+                break
+            fi
+            sleep 1
+            j=$((j + 1))
+        done
+        if [ ! -d "$SEED_ROOT" ]; then
+            log "background: no seed directory at $SEED_ROOT — nothing to load"
+            exit 0
+        fi
+
+        log "background: discovering apps under $SEED_ROOT ..."
+        tmp_list="/tmp/ravios-apps.list.$$"
+        : > "$tmp_list"
+        for dir in "$SEED_ROOT"/*; do
+            [ -d "$dir" ] || continue
+            [ -r "$dir/app.json" ] || continue
+            prio="$(json_get "$dir/app.json" load_priority 2>/dev/null || echo 50)"
+            printf '%03d %s\n' "$prio" "$dir" >> "$tmp_list"
+        done
+
+        # Phase 1: always load images from seed (independent of autostart)
+        log "background: phase 1 — load all images"
+        sort -n "$tmp_list" | while read -r _prio app_dir; do
+            process_app "$app_dir" load || log "load error for $app_dir"
+        done
+
+        # Phase 2: start only apps with autostart=true (depends_on honored inside)
+        log "background: phase 2 — start autostart apps"
+        sort -n "$tmp_list" | while read -r _prio app_dir; do
+            process_app "$app_dir" start || log "start error for $app_dir"
+        done
+
+        rm -f "$tmp_list"
+        log "background: finished"
+    ) >/tmp/ravios-apps.log 2>&1 &
+    return 0
+}
+
+stop() {
+    printf "Stopping $NAME: "
+    echo "OK"
+}
+
+restart() {
+    start
+}
+
+case "$1" in
+    start|stop|restart)
+        "$1"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+        ;;
+esac
+
+exit 0

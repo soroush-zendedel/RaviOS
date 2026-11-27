@@ -1,0 +1,341 @@
+#!/bin/sh
+# RaviOS application control CLI
+# Reads app.json manifests under the Docker Data seed tree and manages
+# load / start / stop / status for declared apps.
+
+SEED_ROOT="/var/lib/docker/ravios-apps"
+STATE_DIR="/var/lib/ravios/apps"
+STATUS_FILE="/var/lib/ravios/docker-data/status"
+
+usage() {
+    cat <<'USAGE'
+Usage: ravios-app <command> [app]
+
+Commands:
+  list              List discovered apps and their status
+  status [app]      Show status for one app or all apps
+  start <app>       Load (if needed) and start an app (starts depends_on first)
+  stop <app>        Stop a running app container
+  restart <app>     Stop then start
+  remove <app>      Stop and remove the container (image kept)
+
+App names match the folder name under /var/lib/docker/ravios-apps/
+or the optional "cli_name" / "name" fields in app.json.
+USAGE
+}
+
+log() { echo "ravios-app: $*" >&2; }
+
+json_get() {
+    file="$1"
+    key="$2"
+    [ -r "$file" ] || return 1
+    val="$(sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$file" | head -1)"
+    if [ -n "$val" ]; then printf '%s\n' "$val"; return 0; fi
+    val="$(sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\([^,[:space:]}]*\).*/\1/p" "$file" | head -1)"
+    if [ -n "$val" ]; then printf '%s\n' "$val"; return 0; fi
+    return 1
+}
+
+json_get_array() {
+    file="$1"
+    key="$2"
+    [ -r "$file" ] || return 1
+    body="$(tr '\n' ' ' < "$file" | sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p")"
+    [ -n "$body" ] || return 1
+    echo "$body" | tr ',' '\n' | sed 's/[[:space:]]*"\([^"]*\)".*/\1/' | tr '\n' ' '
+}
+
+docker_ready() {
+    command -v docker >/dev/null 2>&1 || return 1
+    docker info >/dev/null 2>&1
+}
+
+find_app_dir() {
+    query="$1"
+    [ -d "$SEED_ROOT" ] || return 1
+    # Exact folder name
+    if [ -d "$SEED_ROOT/$query" ] && [ -f "$SEED_ROOT/$query/app.json" ]; then
+        printf '%s\n' "$SEED_ROOT/$query"
+        return 0
+    fi
+    # Match name or cli_name inside app.json
+    for dir in "$SEED_ROOT"/*; do
+        [ -f "$dir/app.json" ] || continue
+        n="$(json_get "$dir/app.json" name 2>/dev/null || true)"
+        c="$(json_get "$dir/app.json" cli_name 2>/dev/null || true)"
+        if [ "$n" = "$query" ] || [ "$c" = "$query" ]; then
+            printf '%s\n' "$dir"
+            return 0
+        fi
+    done
+    return 1
+}
+
+container_state() {
+    c="$1"
+    if ! docker container inspect "$c" >/dev/null 2>&1; then
+        echo "absent"
+        return
+    fi
+    docker inspect --format '{{.State.Running}}' "$c" 2>/dev/null | grep -q true && echo "running" || echo "stopped"
+}
+
+ensure_network() {
+    net="$1"
+    [ -n "$net" ] || return 0
+    docker network inspect "$net" >/dev/null 2>&1 && return 0
+    docker network create "$net" >/dev/null
+}
+
+ensure_volume() {
+    vol="$1"
+    name="${vol%%:*}"
+    [ -n "$name" ] || return 0
+    docker volume inspect "$name" >/dev/null 2>&1 && return 0
+    docker volume create "$name" >/dev/null
+}
+
+ensure_secret_key() {
+    secret_dir="/var/lib/ravios/webui"
+    secret_file="$secret_dir/secret_key"
+    if [ -s "$secret_file" ]; then cat "$secret_file"; return 0; fi
+    mkdir -p "$secret_dir"
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32 > "$secret_file"
+    else
+        tr -dc 'a-f0-9' < /dev/urandom | head -c 64 > "$secret_file"
+    fi
+    chmod 600 "$secret_file"
+    cat "$secret_file"
+}
+
+cmd_list() {
+    if [ ! -d "$SEED_ROOT" ]; then
+        echo "No apps seed directory ($SEED_ROOT)."
+        return 0
+    fi
+    printf "%-16s %-12s %-10s %s\n" "APP" "CONTAINER" "STATE" "VERSION"
+    for dir in "$SEED_ROOT"/*; do
+        [ -f "$dir/app.json" ] || continue
+        name="$(json_get "$dir/app.json" name 2>/dev/null || basename "$dir")"
+        ver="$(json_get "$dir/app.json" version 2>/dev/null || echo "-")"
+        container="$(json_get "$dir/app.json" container 2>/dev/null || echo "-")"
+        if [ "$container" = "-" ] || [ -z "$container" ]; then
+            state="n/a"
+        elif docker_ready; then
+            state="$(container_state "$container")"
+        else
+            state="?"
+        fi
+        printf "%-16s %-12s %-10s %s\n" "$name" "$container" "$state" "$ver"
+    done
+}
+
+cmd_status() {
+    app="$1"
+    if [ -z "$app" ]; then
+        cmd_list
+        return
+    fi
+    dir="$(find_app_dir "$app")" || { log "unknown app: $app"; return 1; }
+    json="$dir/app.json"
+    name="$(json_get "$json" name)"
+    image="$(json_get "$json" image)"
+    container="$(json_get "$json" container)"
+    ver="$(json_get "$json" version)"
+    autostart="$(json_get "$json" autostart 2>/dev/null || echo true)"
+    echo "name:       $name"
+    echo "version:    $ver"
+    echo "image:      $image"
+    echo "container:  $container"
+    echo "autostart:  $autostart"
+    echo "seed:       $dir"
+    if docker_ready && [ -n "$container" ]; then
+        echo "state:      $(container_state "$container")"
+        if docker image inspect "$image" >/dev/null 2>&1; then
+            echo "image_loaded: yes"
+        else
+            echo "image_loaded: no"
+        fi
+    fi
+}
+
+cmd_start() {
+    app="$1"
+    [ -n "$app" ] || { usage; return 1; }
+    dir="$(find_app_dir "$app")" || { log "unknown app: $app"; return 1; }
+    json="$dir/app.json"
+    image_tar="$dir/image.tar"
+
+    if ! docker_ready; then
+        log "Docker is not ready"
+        return 1
+    fi
+
+    name="$(json_get "$json" name)"
+    image="$(json_get "$json" image)"
+    container="$(json_get "$json" container)"
+    load_only="$(json_get "$json" load_only 2>/dev/null || true)"
+    restart="$(json_get "$json" restart 2>/dev/null || echo unless-stopped)"
+
+    # Start depends_on apps first (recursive, depth-limited).
+    # IMPORTANT: run each dependency in a subshell so its cmd_start variables
+    # (name/image/container/json/...) cannot overwrite this app's state.
+    _dep_depth=${RAVIOS_APP_DEP_DEPTH:-0}
+    if [ "$_dep_depth" -lt 5 ]; then
+        for dep in $(json_get_array "$json" depends_on); do
+            [ -n "$dep" ] || continue
+            log "ensuring dependency '$dep' is started first ..."
+            if ! env RAVIOS_APP_DEP_DEPTH=$((_dep_depth + 1)) sh -c '
+                # Re-enter the same CLI as a nested start (fresh variable scope)
+                exec /usr/bin/ravios-app start "$1"
+            ' sh "$dep"; then
+                log "WARN: dependency '$dep' failed — continuing with $app anyway"
+            fi
+            sleep 2
+        done
+    fi
+
+    # Re-bind primary app paths after dependency starts (defensive)
+    dir="$(find_app_dir "$app")" || { log "unknown app after deps: $app"; return 1; }
+    json="$dir/app.json"
+    image_tar="$dir/image.tar"
+    name="$(json_get "$json" name)"
+    image="$(json_get "$json" image)"
+    container="$(json_get "$json" container)"
+    load_only="$(json_get "$json" load_only 2>/dev/null || true)"
+    restart="$(json_get "$json" restart 2>/dev/null || echo unless-stopped)"
+
+    # networks / volumes
+    for net in $(json_get_array "$json" networks); do
+        ensure_network "$net" || { log "cannot create network $net"; return 1; }
+    done
+    for vol in $(json_get_array "$json" volumes); do
+        ensure_volume "$vol" || { log "cannot create volume $vol"; return 1; }
+    done
+
+    # load image if needed
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+        if [ -s "$image_tar" ]; then
+            log "loading $image_tar ..."
+            docker load -i "$image_tar" || { log "docker load failed"; return 1; }
+            rm -f "$image_tar"
+        else
+            log "image $image not loaded and no seed tar at $image_tar"
+            return 1
+        fi
+    fi
+
+    if [ "$load_only" = "true" ]; then
+        # Chromium: special Wayland docker launch (not a plain docker run from app.json)
+        if [ "$name" = "chromium" ]; then
+            launch="/usr/libexec/ravios/chromium-launch.sh"
+            if [ -f "$launch" ]; then
+                log "starting chromium via chromium-launch.sh"
+                /bin/sh "$launch"
+                return $?
+            fi
+            log "chromium launcher missing: $launch (rootfs overlay outdated?)"
+            return 1
+        fi
+        log "load_only=true; image is loaded, container not auto-managed"
+        return 0
+    fi
+
+    [ -n "$container" ] || { log "no container name in manifest"; return 1; }
+
+    log "starting app=$name container=$container image=$image"
+    state="$(container_state "$container")"
+    if [ "$state" = "running" ]; then
+        log "$container already running"
+        return 0
+    fi
+    if [ "$state" = "stopped" ]; then
+        docker start "$container" && log "started $container" && return 0
+        log "failed to start existing container"
+        return 1
+    fi
+
+    # create
+    set -- run -d --name "$container" --restart "$restart"
+    for net in $(json_get_array "$json" networks); do set -- "$@" --network "$net"; done
+    for p in $(json_get_array "$json" ports); do set -- "$@" -p "$p"; done
+    for vol in $(json_get_array "$json" volumes); do set -- "$@" -v "$vol"; done
+
+    env_block="$(tr '\n' ' ' < "$json" | sed -n 's/.*"environment"[[:space:]]*:[[:space:]]*{\([^}]*\)}.*/\1/p')"
+    if [ -n "$env_block" ]; then
+        old_ifs="$IFS"; IFS=','
+        for pair in $env_block; do
+            k="$(echo "$pair" | sed -n 's/.*"\([^"]*\)"[[:space:]]*:.*/\1/p')"
+            v="$(echo "$pair" | sed -n 's/.*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+            [ -n "$k" ] && [ -n "$v" ] && set -- "$@" -e "$k=$v"
+        done
+        IFS="$old_ifs"
+    fi
+
+    # env_from_host: pass selected host environment variables into the container
+    for hk in $(json_get_array "$json" env_from_host); do
+        eval "hv=\${$hk-}"
+        if [ -n "$hv" ]; then
+            set -- "$@" -e "$hk=$hv"
+        fi
+    done
+
+    if echo "$(cat "$json")" | grep -q '"secret_key"[[:space:]]*:[[:space:]]*true'; then
+        sk="$(ensure_secret_key)"
+        set -- "$@" -e "WEBUI_SECRET_KEY=$sk"
+    fi
+
+    set -- "$@" "$image"
+    if docker "$@"; then
+        log "created and started $container"
+        return 0
+    fi
+    log "failed to create $container"
+    return 1
+}
+
+cmd_stop() {
+    app="$1"
+    [ -n "$app" ] || { usage; return 1; }
+    dir="$(find_app_dir "$app")" || { log "unknown app: $app"; return 1; }
+    container="$(json_get "$dir/app.json" container)"
+    [ -n "$container" ] || { log "no container in manifest"; return 1; }
+    if [ "$(container_state "$container")" = "running" ]; then
+        docker stop "$container" && log "stopped $container"
+    else
+        log "$container is not running"
+    fi
+}
+
+cmd_remove() {
+    app="$1"
+    [ -n "$app" ] || { usage; return 1; }
+    dir="$(find_app_dir "$app")" || { log "unknown app: $app"; return 1; }
+    container="$(json_get "$dir/app.json" container)"
+    [ -n "$container" ] || { log "no container in manifest"; return 1; }
+    docker rm -f "$container" 2>/dev/null && log "removed container $container" || log "no container to remove"
+}
+
+cmd="$1"
+shift 2>/dev/null || true
+case "$cmd" in
+    list) cmd_list ;;
+    status) cmd_status "$@" ;;
+    start) cmd_start "$@" ;;
+    stop) cmd_stop "$@" ;;
+    restart) cmd_stop "$1"; cmd_start "$1" ;;
+    remove|rm) cmd_remove "$@" ;;
+    -h|--help|help|"") usage ;;
+    *)
+        # Convenience: "ravios-app chromium" => start chromium
+        if find_app_dir "$cmd" >/dev/null 2>&1; then
+            cmd_start "$cmd"
+        else
+            log "unknown command or app: $cmd"
+            usage
+            exit 1
+        fi
+        ;;
+esac

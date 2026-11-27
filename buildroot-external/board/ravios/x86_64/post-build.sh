@@ -6,88 +6,42 @@ BOARD_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_ROOT="$(CDPATH= cd -- "$BOARD_DIR/../../../.." && pwd)"
 
 # ------------------------------------------------------------
-# Embed offline Chromium Docker image
+# RaviOS post-build
+#
+# Application Docker images are NO LONGER embedded into the rootfs.
+# They are seeded directly onto the Docker Data partition during
+# post-image (see post-image.sh). This keeps the rootfs small and
+# free of non-OS payload.
 # ------------------------------------------------------------
 
-CHROMIUM_IMAGE_TAR="$PROJECT_ROOT/artifacts/ravios-chromium/image/ravios-chromium.tar"
-CHROMIUM_TARGET_DIR="$TARGET_DIR/usr/share/ravios/docker-images"
-CHROMIUM_TARGET_TAR="$CHROMIUM_TARGET_DIR/ravios-chromium.tar"
-
-if [ ! -s "$CHROMIUM_IMAGE_TAR" ]; then
-    echo "ERROR: Chromium Docker image artifact is missing or empty: $CHROMIUM_IMAGE_TAR" >&2
-    echo "Run docker/chromium/prepare-image.ps1 before building RaviOS." >&2
-    exit 1
-fi
-
-mkdir -p "$CHROMIUM_TARGET_DIR"
-install -m 0644 "$CHROMIUM_IMAGE_TAR" "$CHROMIUM_TARGET_TAR"
-
-echo "Embedded Chromium image: $CHROMIUM_IMAGE_TAR -> $CHROMIUM_TARGET_TAR"
+echo "===== RaviOS post-build: rootfs stays free of Docker image tarballs ====="
 
 # ------------------------------------------------------------
-# Embed offline Ollama image and Qwen model
-# ------------------------------------------------------------
-
-echo "===== Installing offline Ollama bundle ====="
-
-BUNDLE_DIR="$PROJECT_ROOT/artifacts/ollama-bundle"
-OFFLINE_DIR="$TARGET_DIR/usr/share/ravios/offline/ollama"
-
-IMAGE_ARCHIVE="$BUNDLE_DIR/image/ravi-ollama-image.tar"
-MODEL_ARCHIVE="$BUNDLE_DIR/models/qwen2.5-0.5b.tar"
-
-test -s "$IMAGE_ARCHIVE" || {
-    echo "ERROR: Ollama image archive is missing or empty: $IMAGE_ARCHIVE" >&2
-    exit 1
-}
-
-test -s "$MODEL_ARCHIVE" || {
-    echo "ERROR: Qwen model archive is missing or empty: $MODEL_ARCHIVE" >&2
-    exit 1
-}
-
-mkdir -p "$OFFLINE_DIR/image" "$OFFLINE_DIR/models"
-
-install -m 0644 "$IMAGE_ARCHIVE" \
-    "$OFFLINE_DIR/image/ravi-ollama-image.tar"
-
-install -m 0644 "$MODEL_ARCHIVE" \
-    "$OFFLINE_DIR/models/qwen2.5-0.5b.tar"
-
-echo "Offline Ollama bundle installed successfully."
-
-# ------------------------------------------------------------
-# Embed offline Open WebUI (ravios-webui) image
-# ------------------------------------------------------------
-
-echo "===== Installing offline ravios-webui image ====="
-
-WEBUI_IMAGE_TAR="$PROJECT_ROOT/artifacts/ravios-webui/image/ravios-webui-image.tar"
-WEBUI_OFFLINE_DIR="$TARGET_DIR/usr/share/ravios/offline/ravios-webui"
-
-if [ ! -s "$WEBUI_IMAGE_TAR" ]; then
-    echo "ERROR: WebUI Docker image artifact is missing or empty: $WEBUI_IMAGE_TAR" >&2
-    echo "Run docker/webui/prepare-image.ps1 before building RaviOS." >&2
-    exit 1
-fi
-
-mkdir -p "$WEBUI_OFFLINE_DIR/image"
-install -m 0644 "$WEBUI_IMAGE_TAR" \
-    "$WEBUI_OFFLINE_DIR/image/ravios-webui-image.tar"
-
-echo "Offline ravios-webui image installed successfully."
-
-# ------------------------------------------------------------
-# Set executable permissions
+# Set executable permissions for system scripts
 # ------------------------------------------------------------
 
 chmod 0755 "$TARGET_DIR/etc/init.d/S50docker-data"
 chmod 0755 "$TARGET_DIR/etc/init.d/S60dockerd"
-chmod 0755 "$TARGET_DIR/etc/init.d/S70ravios-chromium-image"
-chmod 0755 "$TARGET_DIR/etc/init.d/S70ollama"
-chmod 0755 "$TARGET_DIR/etc/init.d/S71ravios-webui"
+chmod 0755 "$TARGET_DIR/etc/init.d/S70ravios-apps"
 chmod 0755 "$TARGET_DIR/usr/sbin/ravios-docker-data"
-chmod 0755 "$TARGET_DIR/usr/bin/ravios-session"
+chmod 0755 "$TARGET_DIR/usr/bin/ravios-app" 2>/dev/null || true
+mkdir -p "$TARGET_DIR/usr/libexec/ravios"
+chmod 0755 "$TARGET_DIR/usr/bin/chromium" 2>/dev/null || true
+chmod 0755 "$TARGET_DIR/usr/libexec/ravios/chromium-launch.sh" 2>/dev/null || true
+chmod 0755 "$TARGET_DIR/usr/bin/webui" 2>/dev/null || true
+chmod 0755 "$TARGET_DIR/usr/bin/ollama" 2>/dev/null || true
+chmod 0755 "$TARGET_DIR/usr/bin/ravios-session" 2>/dev/null || true
 chmod 0755 "$TARGET_DIR/etc/ravios/session.d/"*.sh 2>/dev/null || true
-chmod 0755 "$TARGET_DIR/etc/init.d/S90ravios-session"
-chmod 0755 "$TARGET_DIR/etc/profile.d/10-locale.sh"
+chmod 0755 "$TARGET_DIR/etc/init.d/S90ravios-session" 2>/dev/null || true
+chmod 0755 "$TARGET_DIR/etc/profile.d/10-locale.sh" 2>/dev/null || true
+
+# Remove the old per-app init scripts if they still exist in the overlay
+rm -f "$TARGET_DIR/etc/init.d/S70ravios-chromium-image"
+rm -f "$TARGET_DIR/etc/init.d/S70ollama"
+rm -f "$TARGET_DIR/etc/init.d/S71ravios-webui"
+
+# Ensure no leftover image directories are present in the rootfs
+rm -rf "$TARGET_DIR/usr/share/ravios/docker-images"
+rm -rf "$TARGET_DIR/usr/share/ravios/offline"
+
+echo "===== post-build completed (lean rootfs) ====="

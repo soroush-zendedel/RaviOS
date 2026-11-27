@@ -7,11 +7,17 @@ param(
     [string]$OutputPath = "",
 
     [ValidateSet("VirtualBox", "VMware")]
-    [string]$Target = "VirtualBox",
+    [string]$Target = "VMware",
 
-    # Remove only per-build disposable artifacts (disk images, staging files).
+    # Remove per-build disposable image products (disk.img, docker-data.ext4, staging).
     # Does not touch Buildroot compile caches, downloads, or ccache.
-    [switch]$Clean
+    [switch]$Clean,
+
+    # Also remove rootfs.ext2 so the next build regenerates the root filesystem image.
+    [switch]$CleanRootfs,
+
+    # Force re-application of ravios_x86_64_defconfig before building.
+    [switch]$RefreshConfig
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,18 +109,19 @@ function Get-VersionedPath {
 # Does NOT remove:
 #   - Docker volumes ravios_buildroot-src / -dl / -ccache / -output (build tree)
 #   - Compiled objects under output/build, output/host, output/target, ...
-#   - Offline app images (chromium, webui, ollama-bundle)
+#   - Offline app images under artifacts/ravios-apps/
 #   - Versioned finished VMs the user may still want
 function Remove-RaviOsEphemeralArtifacts {
     param(
         [string]$ContainerName = $BuildContainer,
-        [string]$ArtifactsRoot = $ArtifactsDir
+        [string]$ArtifactsRoot = $ArtifactsDir,
+        [switch]$IncludeRootfs
     )
 
     Write-Host ""
     Write-Host "Cleaning per-build disposable artifacts (compile cache kept)..."
 
-    # --- Inside the Buildroot container: final image products only ---
+    # --- Inside the Buildroot container: genimage / post-image products ---
     $containerRunning = $false
     if (-not [string]::IsNullOrWhiteSpace($ContainerName)) {
         $runningIds = @(
@@ -125,16 +132,34 @@ function Remove-RaviOsEphemeralArtifacts {
     }
 
     if ($containerRunning) {
-        # Only remove the final disk image that every full build regenerates.
-        # Do NOT wipe bzImage, efi-part, or rootfs.* — Buildroot incremental
-        # builds will not recreate them if package stamps are still "done".
-        Write-Host "  Container: removing previous disk.img only (keeping kernel/EFI/rootfs)"
-        & docker exec $ContainerName sh -c 'rm -f /workspace/output/images/disk.img; mkdir -p /workspace/output/images; exit 0' | Out-Null
+        # Always remove products that every successful image build regenerates:
+        #   disk.img, docker-data.ext4, leftover seed mount dirs.
+        # Optionally also remove rootfs.ext2 when -CleanRootfs was requested.
+        # Keep bzImage and efi-part for incremental kernel/EFI rebuilds unless
+        # the corresponding packages are invalidated by Buildroot.
+        $rmList = @(
+            "/workspace/output/images/disk.img",
+            "/workspace/output/images/docker-data.ext4",
+            "/workspace/output/images/genimage.cfg",
+            "/workspace/output/images/genimage-uefi.cfg"
+        )
+        if ($IncludeRootfs) {
+            $rmList += "/workspace/output/images/rootfs.ext2"
+            $rmList += "/workspace/output/images/rootfs.ext2.gz"
+            $rmList += "/workspace/output/images/rootfs.cpio"
+        }
+
+        $rmCmd = "rm -f " + ($rmList -join " ") + "; rm -rf /workspace/output/images/docker-data-mnt; mkdir -p /workspace/output/images; exit 0"
+        Write-Host "  Container: removing regenerated image products..."
+        if ($IncludeRootfs) {
+            Write-Host "  Container: also removing rootfs.ext2 (-CleanRootfs)"
+        }
+        & docker exec $ContainerName sh -c $rmCmd | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "  Could not remove container disk.img (exit $LASTEXITCODE). Continuing."
+            Write-Warning "  Could not fully clean container images (exit $LASTEXITCODE). Continuing."
         }
         else {
-            Write-Host "  Container: disk.img removed (if it existed)."
+            Write-Host "  Container: image products removed (if they existed)."
         }
     }
     else {
@@ -191,6 +216,7 @@ function Remove-RaviOsEphemeralArtifacts {
     Write-Host "Per-build cleanup finished (Buildroot ccache/dl/output tree preserved)."
 }
 
+
 function Invoke-SystemInventory {
     Write-Host ""
     Write-Host "Generating RaviOS system inventory..."
@@ -240,8 +266,8 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     throw "Docker was not found in PATH."
 }
 
-if (-not (Get-Command VBoxManage -ErrorAction SilentlyContinue)) {
-    throw "VBoxManage was not found in PATH. It is required to convert the RAW image."
+if ($Target -eq "VirtualBox" -and -not (Get-Command VBoxManage -ErrorAction SilentlyContinue)) {
+    throw "VBoxManage was not found in PATH. It is required for the VirtualBox target."
 }
 
 if ($Target -eq "VMware" -and -not (Test-Path -LiteralPath $VMwareExe -PathType Leaf)) {
@@ -456,10 +482,20 @@ if ($LASTEXITCODE -ne 0) {
 # ------------------------------------------------------------
 # Optional: clean only (no Buildroot make / no VM create)
 # ------------------------------------------------------------
-if ($Clean) {
-    Remove-RaviOsEphemeralArtifacts -ContainerName $BuildContainer -ArtifactsRoot $ArtifactsDir
+if ($Clean -or $CleanRootfs) {
+    $rootfsFlag = @{ }
+    if ($CleanRootfs) { $rootfsFlag["IncludeRootfs"] = $true }
+    Remove-RaviOsEphemeralArtifacts -ContainerName $BuildContainer -ArtifactsRoot $ArtifactsDir @rootfsFlag
     Write-Host ""
-    Write-Host "Clean completed. No OS image was built."
+    if ($Clean -and -not $CleanRootfs) {
+        Write-Host "Clean completed (image products). No OS image was built."
+    }
+    elseif ($CleanRootfs -and -not $Clean) {
+        Write-Host "CleanRootfs completed (including rootfs.ext2). No OS image was built."
+    }
+    else {
+        Write-Host "Clean + CleanRootfs completed. No OS image was built."
+    }
     exit 0
 }
 
@@ -479,12 +515,20 @@ Invoke-Checked docker @(
     "exec", $BuildContainer, "bash", $BuildrootInitializerContainerPath, $BuildrootVersion
 ) "Could not initialize Buildroot source."
 
-# The output volume is initialized only once. Never overwrite an existing
-# .config on subsequent runs; users may have made deliberate configuration changes.
+# Apply or refresh Buildroot configuration from the RaviOS external defconfig.
+# - First run (no .config): always apply ravios_x86_64_defconfig.
+# - -RefreshConfig: force re-application so external tree changes take effect.
+# - Otherwise: reuse existing .config (preserves intentional local edits).
 & docker exec $BuildContainer test -s /workspace/output/.config
 $OutputConfigExists = ($LASTEXITCODE -eq 0)
-if (-not $OutputConfigExists) {
-    Write-Host "Buildroot output configuration not found; applying RaviOS defconfig for first initialization..."
+
+if ($RefreshConfig -or -not $OutputConfigExists) {
+    if ($RefreshConfig) {
+        Write-Host "RefreshConfig requested; re-applying ravios_x86_64_defconfig..."
+    }
+    else {
+        Write-Host "Buildroot output configuration not found; applying RaviOS defconfig for first initialization..."
+    }
     Invoke-Checked docker @(
         "exec",
         $BuildContainer,
@@ -493,10 +537,18 @@ if (-not $OutputConfigExists) {
         "O=/workspace/output",
         "BR2_EXTERNAL=/workspace/buildroot-external",
         "ravios_x86_64_defconfig"
-    ) "Could not initialize Buildroot output configuration."
+    ) "Could not apply Buildroot output configuration (ravios_x86_64_defconfig)."
 }
 else {
-    Write-Host "Existing Buildroot output configuration found; reusing it."
+    Write-Host "Existing Buildroot output configuration found; reusing it (pass -RefreshConfig to reset from defconfig)."
+}
+
+# -RefreshConfig alone: apply defconfig and stop (do not build the OS image).
+if ($RefreshConfig) {
+    Write-Host ""
+    Write-Host "RefreshConfig completed. ravios_x86_64_defconfig has been applied."
+    Write-Host "No OS image was built. Run .\build.ps1 without -RefreshConfig to build."
+    exit 0
 }
 
 # ------------------------------------------------------------

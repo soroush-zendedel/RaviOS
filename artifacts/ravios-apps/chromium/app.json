@@ -1,0 +1,19 @@
+{
+  "name": "chromium",
+  "cli_name": "chromium",
+  "version": "1.1.2",
+  "image": "ravios-chromium:latest",
+  "container": "chromium",
+  "load_only": true,
+  "autostart": false,
+  "load_priority": 10,
+  "volumes": [
+    "ravios-chromium-data:/data",
+    "ravios-chromium-cache:/cache"
+  ],
+  "env_from_host": [
+    "WAYLAND_DISPLAY",
+    "XDG_RUNTIME_DIR"
+  ],
+  "description": "RaviOS Chromium: profile+history in /data, cache in /cache, downloads in /data/Downloads (survive reboot)"
+}

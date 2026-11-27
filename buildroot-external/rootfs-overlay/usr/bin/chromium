@@ -1,0 +1,8 @@
+#!/bin/sh
+# Start Chromium via the dedicated Wayland launcher.
+LAUNCH=/usr/libexec/ravios/chromium-launch.sh
+if [ -f "$LAUNCH" ]; then
+    exec /bin/sh "$LAUNCH" "$@"
+fi
+echo "chromium: launcher missing: $LAUNCH (rebuild rootfs / reinstall overlay)" >&2
+exit 1

@@ -1,5 +1,9 @@
 # RaviOS Chromium - minimal Wayland client with best-effort GPU/VAAPI
 # Apt mirrors: Arvan Cloud (including security)
+#
+# Persistent profile/cache (mounted at runtime from app.json volumes):
+#   /data  -> user-data-dir (history, cookies, local storage, ...)
+#   /cache -> disk-cache-dir (separately clearable)
 
 ARG BASE_IMAGE=debian:bookworm-slim
 FROM ${BASE_IMAGE}
@@ -40,7 +44,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /usr/share/doc /usr/share/man /usr/share/info \
     && if [ -f /usr/lib/chromium/chrome-sandbox ]; then \
          chmod 4755 /usr/lib/chromium/chrome-sandbox; \
-       fi
+       fi \
+    && mkdir -p /data /cache /usr/share/ravios \
+    && chmod 755 /data /cache
+
+COPY files/webui-wait.html /usr/share/ravios/webui-wait.html
 
 WORKDIR /root
 
@@ -53,10 +61,14 @@ ENV HOME=/root \
 
 # --no-sandbox is required inside typical containers.
 # --test-type hides the yellow "unsupported flag: --no-sandbox" infobar.
+# Profile and cache live on Docker volumes mounted at /data and /cache.
 CMD [ \
     "chromium", \
     "--no-sandbox", \
     "--test-type", \
+    "--user-data-dir=/data", \
+    "--disk-cache-dir=/cache", \
+    "--download-default-directory=/data/Downloads", \
     "--ozone-platform=wayland", \
     "--enable-features=VaapiVideoDecoder,VaapiVideoEncoder,VaapiIgnoreDriverChecks,CanvasOopRasterization,UseOzonePlatform,AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL", \
     "--ignore-gpu-blocklist", \

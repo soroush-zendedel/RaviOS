@@ -1,0 +1,40 @@
+{
+  "name": "webui",
+  "cli_name": "webui",
+  "version": "1.0.1",
+  "image": "ravios-webui:latest",
+  "container": "ravios-webui",
+  "restart": "unless-stopped",
+  "autostart": false,
+  "load_priority": 30,
+  "ports": [
+    "127.0.0.1:8080:8080"
+  ],
+  "volumes": [
+    "ravios-webui-data:/app/backend/data"
+  ],
+  "environment": {
+    "ENV": "prod",
+    "WEBUI_AUTH": "false",
+    "OLLAMA_BASE_URL": "http://ravi-ollama:11434",
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_DATASETS_OFFLINE": "1",
+    "RAG_EMBEDDING_ENGINE": "ollama",
+    "RAG_EMBEDDING_MODEL": "qwen2.5:0.5b",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "ANONYMIZED_TELEMETRY": "False",
+    "DO_NOT_TRACK": "1",
+    "SCARF_NO_ANALYTICS": "true"
+  },
+  "networks": [
+    "ravios-net"
+  ],
+  "depends_on": [
+    "ollama"
+  ],
+  "extra": {
+    "secret_key": true
+  },
+  "description": "RaviOS Open WebUI frontend (start via: webui  or  ravios-app start webui)"
+}

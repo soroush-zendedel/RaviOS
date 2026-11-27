@@ -1,8 +1,10 @@
-# Prepare ravios-webui image for offline inclusion in RaviOS rootfs.
+# Prepare ravios-webui image for offline seeding onto the Docker Data volume.
 # Called automatically by build.ps1. Safe to run manually.
 #
-# Builds/tags ravios-webui:latest from the official Open WebUI image and
-# exports artifacts/ravios-webui/image/ravios-webui-image.tar.
+# Output (new convention):
+#   artifacts/ravios-apps/webui/image.tar
+#   artifacts/ravios-apps/webui/.prepare-stamp
+#   artifacts/ravios-apps/webui/app.json  (must already exist)
 #
 # Rebuild policy (avoids false rebuilds from Dockerfile mtime after unzip/copy):
 #   - Force switch              -> always rebuild + save
@@ -28,8 +30,8 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $Dockerfile = Join-Path $ProjectRoot "docker\webui\Dockerfile"
-$DestDir = Join-Path $ProjectRoot "artifacts\ravios-webui\image"
-$DestTar = Join-Path $DestDir "ravios-webui-image.tar"
+$DestDir = Join-Path $ProjectRoot "artifacts\ravios-apps\webui"
+$DestTar = Join-Path $DestDir "image.tar"
 $StampPath = Join-Path $DestDir ".prepare-stamp"
 
 $BaseImageCandidates = @(
@@ -69,19 +71,20 @@ function Resolve-BaseImageName {
     param([string]$Preferred)
 
     if (-not [string]::IsNullOrWhiteSpace($Preferred)) {
-        return $Preferred.Trim()
+        return $Preferred
     }
 
     foreach ($candidate in $BaseImageCandidates) {
-        if (-not [string]::IsNullOrWhiteSpace((Get-ImageId $candidate))) {
-            Write-Host "Using local base image: $candidate"
+        $id = Get-ImageId $candidate
+        if (-not [string]::IsNullOrWhiteSpace($id)) {
+            Write-Host "Using locally available base image: $candidate"
             return $candidate
         }
     }
 
-    # None present locally — docker build will pull the primary name.
-    Write-Host "No local Open WebUI base image found; will use $($BaseImageCandidates[0]) for build/pull."
-    return $BaseImageCandidates[0]
+    $fallback = $BaseImageCandidates[0]
+    Write-Host "No preferred base image found locally - will use: $fallback"
+    return $fallback
 }
 
 function Read-Stamp {
@@ -89,8 +92,7 @@ function Read-Stamp {
         return $null
     }
     try {
-        return Get-Content -LiteralPath $StampPath -Raw -ErrorAction Stop |
-            ConvertFrom-Json
+        return Get-Content -LiteralPath $StampPath -Raw | ConvertFrom-Json
     }
     catch {
         return $null
@@ -105,38 +107,31 @@ function Write-Stamp {
         [string]$ResolvedBase
     )
     $obj = [ordered]@{
-        imageId         = $ImageId
-        baseImageId     = $BaseId
-        dockerfileHash  = $DockerfileHash
-        imageName       = $ImageName
-        baseImage       = $ResolvedBase
-        savedAtUtc      = [DateTime]::UtcNow.ToString("o")
+        imageId        = $ImageId
+        baseId         = $BaseId
+        dockerfileHash = $DockerfileHash
+        resolvedBase   = $ResolvedBase
+        savedAtUtc     = [DateTime]::UtcNow.ToString("o")
     }
     ($obj | ConvertTo-Json) | Set-Content -LiteralPath $StampPath -Encoding UTF8
 }
 
 $dockerfileHash = Get-FileSha256 $Dockerfile
+$imageId = Get-ImageId $ImageName
+$imageExists = -not [string]::IsNullOrWhiteSpace($imageId)
+
 $tarExists = Test-Path -LiteralPath $DestTar
 $tarIsValid = $false
 if ($tarExists) {
     $tarInfo = Get-Item -LiteralPath $DestTar
-    $tarIsValid = ($tarInfo.Length -ge 100MB)
-    if (-not $tarIsValid) {
-        Write-Host "WebUI image tar is too small ($([math]::Round($tarInfo.Length/1MB,1)) MB) - will recreate."
-    }
+    $tarIsValid = ($tarInfo.Length -ge 1MB)
 }
-else {
-    Write-Host "WebUI image tar not found - will create it."
-}
-
-$imageId = Get-ImageId $ImageName
-$imageExists = -not [string]::IsNullOrWhiteSpace($imageId)
 
 $needBuild = $Force.IsPresent
 $needSave = $Force.IsPresent
 
 if ($Force.IsPresent) {
-    Write-Host "Force specified - will rebuild and save."
+    Write-Host "Force requested - will rebuild and save."
 }
 elseif (-not $imageExists) {
     Write-Host "Docker image $ImageName not found - will build it."
@@ -156,8 +151,6 @@ else {
         $needSave = $true
     }
     elseif ($null -eq $stamp) {
-        # Image already present (e.g. tagged manually) but no stamp yet:
-        # do not rebuild; just export tar and write stamp.
         Write-Host "Image exists without prepare stamp - will save archive only."
         $needSave = $true
     }
@@ -204,7 +197,7 @@ if ($needSave) {
     if ($LASTEXITCODE -ne 0) { throw "docker save failed" }
 
     $mb = [math]::Round((Get-Item -LiteralPath $DestTar).Length / 1MB, 1)
-    Write-Host "Done. Tar size: $mb MB"
+    Write-Host "Done. Tar size: $mb MB (artifacts/ravios-apps/webui/image.tar)"
 
     $baseId = Get-ImageId $resolvedBase
     Write-Stamp -ImageId $imageId -BaseId "$baseId" -DockerfileHash $dockerfileHash -ResolvedBase $resolvedBase
