@@ -65,3 +65,7 @@ local/*
 **/image/*.tar
 **/models/*.tar
 **/VMware/*/
+artifacts/ravios-apps/**/.prepare-stamp
+artifacts/ravios-apps/**/image.tar
+artifacts/ravios-apps/**/image.tar
+
